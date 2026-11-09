@@ -146,7 +146,8 @@ describe("blocking rules and corrections", () => {
       where: { userId: lucas, type: "TRANSFER", toEnvelopeId: bills, amountSen: 1000 },
       orderBy: { createdAt: "asc" },
     });
-    expect({ ...a, id: "", createdAt: null }).toEqual({ ...t, id: "", createdAt: null });
+    expect(a.batchId).not.toBeNull(); // a split is a batch; a plain transfer is not
+    expect({ ...a, id: "", createdAt: null, batchId: null }).toEqual({ ...t, id: "", createdAt: null });
 
     // Unallocate both back so later numbers match the walkthrough.
     await ledger.transfer(lucas, { fromEnvelopeId: bills, toEnvelopeId: null, amountSen: 2000, occurredOn: D6 });
@@ -576,5 +577,118 @@ describe("expenses without an envelope (come out of Unallocated)", () => {
     b = await assertInvariant(fay);
     expect(b).toMatchObject({ totalSen: 38000, unallocatedSen: 18000 });
     expect(b.envelopes[groceries]).toBe(20000);
+  });
+});
+
+describe("removing money: move back, undo split, delete income, delete envelope", () => {
+  let u: string;
+  let groceries: string, travel: string;
+  beforeAll(async () => {
+    u = (await makeTestUser()).id;
+    groceries = await newEnvelope(u, "Groceries");
+    travel = await newEnvelope(u, "Travel");
+  });
+
+  it("moves money from an envelope back to Unallocated as its own transfer, and voiding it undoes that", async () => {
+    await ledger.recordIncome(u, { amountSen: 100000, occurredOn: D1 });
+    await ledger.allocate(u, { items: [{ envelopeId: groceries, amountSen: 30000 }], occurredOn: D1 });
+    await ledger.transfer(u, { fromEnvelopeId: groceries, toEnvelopeId: null, amountSen: 10000, occurredOn: D1 });
+    let b = await assertInvariant(u);
+    expect(b.envelopes[groceries]).toBe(20000);
+    expect(b.unallocatedSen).toBe(80000);
+    await expect(
+      ledger.transfer(u, { fromEnvelopeId: groceries, toEnvelopeId: null, amountSen: 99999, occurredOn: D1 }),
+    ).rejects.toMatchObject({ code: "INSUFFICIENT", message: "Groceries has RM 200.00, short by RM 799.99" });
+    const moveBack = await testDb.transaction.findFirstOrThrow({ where: { userId: u, type: "TRANSFER", toEnvelopeId: null } });
+    await ledger.voidTransaction(u, { id: moveBack.id });
+    b = await assertInvariant(u);
+    expect(b.envelopes[groceries]).toBe(30000);
+  });
+
+  it("undoes a whole split in one go, once", async () => {
+    await ledger.allocate(u, { items: [{ envelopeId: groceries, amountSen: 5000 }, { envelopeId: travel, amountSen: 7000 }], occurredOn: D1 });
+    const rows = await testDb.transaction.findMany({ where: { userId: u, type: "TRANSFER", amountSen: { in: [5000, 7000] } } });
+    expect(rows).toHaveLength(2);
+    expect(new Set(rows.map((r) => r.batchId)).size).toBe(1);
+    const before = await assertInvariant(u);
+    expect(await ledger.undoSplit(u, { batchId: rows[0].batchId! })).toEqual({ count: 2 });
+    const after = await assertInvariant(u);
+    expect(after.unallocatedSen).toBe(before.unallocatedSen + 12000);
+    expect(after.envelopes[travel] ?? 0).toBe(0);
+    await expect(ledger.undoSplit(u, { batchId: rows[0].batchId! })).rejects.toMatchObject({ code: "NOT_FOUND" });
+    await expect(ledger.undoSplit(other, { batchId: rows[0].batchId! })).rejects.toMatchObject({ code: "NOT_FOUND" }); // not theirs
+  });
+
+  it("refuses to undo a split whose money was already spent", async () => {
+    await ledger.allocate(u, { items: [{ envelopeId: travel, amountSen: 4000 }], occurredOn: D1 });
+    const row = await testDb.transaction.findFirstOrThrow({ where: { userId: u, toEnvelopeId: travel, amountSen: 4000 } });
+    await ledger.recordExpense(u, { amountSen: 4000, envelopeId: travel, occurredOn: D1 });
+    await expect(ledger.undoSplit(u, { batchId: row.batchId! })).rejects.toMatchObject({ code: "INSUFFICIENT" });
+    await assertInvariant(u);
+  });
+
+  it("deletes an income entry and every edited version of it", async () => {
+    await ledger.recordIncome(u, { amountSen: 2050, occurredOn: D1, note: "Gift" });
+    const gift = await testDb.transaction.findFirstOrThrow({ where: { userId: u, type: "INCOME", amountSen: 2050 } });
+    const { id: corrected } = await ledger.correctTransaction(u, { id: gift.id, amountSen: 2500, occurredOn: D1 });
+    const before = await assertInvariant(u);
+    await ledger.deleteIncome(u, { id: corrected });
+    expect(await testDb.transaction.count({ where: { id: { in: [gift.id, corrected] } } })).toBe(0);
+    const after = await assertInvariant(u);
+    expect(after.totalSen).toBe(before.totalSen - 2500);
+    await expect(ledger.deleteIncome(other, { id: gift.id })).rejects.toMatchObject({ code: "NOT_FOUND" });
+  });
+
+  it("refuses to delete income that is already in envelopes, naming the shortfall, and deletes nothing", async () => {
+    const v = (await makeTestUser()).id;
+    const jar = await newEnvelope(v, "Jar");
+    await ledger.recordIncome(v, { amountSen: 10000, occurredOn: D1 });
+    await ledger.allocate(v, { items: [{ envelopeId: jar, amountSen: 6000 }], occurredOn: D1 });
+    const income = await testDb.transaction.findFirstOrThrow({ where: { userId: v, type: "INCOME" } });
+    await expect(ledger.deleteIncome(v, { id: income.id })).rejects.toMatchObject({
+      code: "INSUFFICIENT",
+      message: "Part of this income is already in envelopes. Move RM 60.00 back to Unallocated first, then delete it.",
+    });
+    expect(await count(v)).toBe(2);
+    await ledger.transfer(v, { fromEnvelopeId: jar, toEnvelopeId: null, amountSen: 6000, occurredOn: D1 });
+    await ledger.deleteIncome(v, { id: income.id });
+    const b = await assertInvariant(v);
+    expect(b).toMatchObject({ totalSen: 0, unallocatedSen: 0 });
+  });
+
+  it("deletes an envelope after moving its balance, keeps its name for history, freezes its entries and stops its repeats", async () => {
+    const w = (await makeTestUser()).id;
+    const old = await newEnvelope(w, "Old jar");
+    const keep = await newEnvelope(w, "Keep");
+    await ledger.recordIncome(w, { amountSen: 10000, occurredOn: D1 });
+    await ledger.allocate(w, { items: [{ envelopeId: old, amountSen: 6000 }], occurredOn: D1 });
+    await ledger.recordExpense(w, { amountSen: 1000, envelopeId: old, occurredOn: D1 });
+    await testDb.recurringItem.create({ data: { userId: w, kind: "EXPENSE", amountSen: 500, envelopeId: old, cadence: "MONTHLY", startOn: new Date(D1) } });
+    const before = await assertInvariant(w);
+
+    await expect(ledger.deleteEnvelope(w, { id: old, moveToEnvelopeId: old })).rejects.toMatchObject({ code: "VALIDATION" });
+    await ledger.deleteEnvelope(w, { id: old, moveToEnvelopeId: keep });
+    const after = await assertInvariant(w);
+    expect(after.totalSen).toBe(before.totalSen);
+    expect(after.envelopes[keep]).toBe(5000);
+    expect(after.envelopes[old] ?? 0).toBe(0);
+    expect(await testDb.envelope.count({ where: { id: old } })).toBe(0);
+    expect(await testDb.deletedEnvelope.findUniqueOrThrow({ where: { id: old } })).toMatchObject({ userId: w, name: "Old jar" });
+    expect(await testDb.transaction.count({ where: { userId: w, OR: [{ envelopeId: old }, { fromEnvelopeId: old }, { toEnvelopeId: old }] } })).toBe(3);
+    expect((await testDb.recurringItem.findFirstOrThrow({ where: { userId: w } })).endedAt).not.toBeNull();
+
+    const spend = await findExpense(w, 1000);
+    await expect(ledger.voidTransaction(w, { id: spend.id })).rejects.toMatchObject({ message: "This entry belongs to a deleted envelope, so it can't be changed" });
+    await expect(ledger.deleteEnvelope(other, { id: keep, moveToEnvelopeId: null })).rejects.toMatchObject({ code: "NOT_FOUND" });
+  });
+
+  it("deletes an envelope with money into Unallocated", async () => {
+    await ledger.allocate(u, { items: [{ envelopeId: groceries, amountSen: 1000 }], occurredOn: D1 });
+    const before = await assertInvariant(u);
+    const held = before.envelopes[groceries];
+    await ledger.deleteEnvelope(u, { id: groceries, moveToEnvelopeId: null });
+    const after = await assertInvariant(u);
+    expect(after.unallocatedSen).toBe(before.unallocatedSen + held);
+    expect(after.totalSen).toBe(before.totalSen);
   });
 });

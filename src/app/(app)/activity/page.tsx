@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { requireUser } from "@/server/auth";
 import { AppError } from "@/server/errors";
-import { listEnvelopeNames } from "@/server/envelopes/service";
+import { listEnvelopeLabels } from "@/server/envelopes/service";
 import { listTransactions } from "@/server/ledger/service";
 import { listRecurring } from "@/server/recurring/service";
 import { ActivityToolbar } from "@/components/history/ActivityToolbar";
@@ -22,7 +22,7 @@ const one = (v: string | string[] | undefined) => (typeof v === "string" && v !=
 export default async function ActivityPage({ searchParams }: PageProps<"/activity">) {
   const user = await requireUser();
   const sp = await searchParams;
-  const envelopes = await listEnvelopeNames(user.id);
+  const envelopes = await listEnvelopeLabels(user.id);
   const byId: EnvelopesById = Object.fromEntries(
     envelopes.map((e) => [e.id, { name: e.name, colour: e.colour, icon: e.icon, archived: e.archivedAt !== null }]),
   );

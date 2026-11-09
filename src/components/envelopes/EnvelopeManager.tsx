@@ -4,6 +4,7 @@ import { useCallback, useState } from "react";
 import { useRouter } from "next/navigation";
 import { archiveEnvelope, reorderEnvelopes, unarchiveEnvelope } from "@/server/actions/envelopes";
 import { Button, ConfirmSheet, useToast } from "@/components/ui";
+import { DeleteEnvelopeSheet, MoveBackSheet } from "./MoneyOutSheets";
 import { EnvelopeFormSheet } from "./EnvelopeFormSheet";
 import { EnvelopeRow } from "./EnvelopeRow";
 import type { EnvelopeView } from "@/lib/types";
@@ -150,14 +151,18 @@ function ArrowButton({
   );
 }
 
-/** Edit and archive controls for /envelopes/[id]. Lives here with the other envelope mutations. */
-export function EnvelopeDetailActions({ envelope }: { envelope: EnvelopeView }) {
+/** Edit, move back, archive and delete controls for /envelopes/[id]. Lives here with the other envelope mutations. */
+export function EnvelopeDetailActions({ envelope, others }: { envelope: EnvelopeView; others: { id: string; name: string }[] }) {
   const router = useRouter();
   const { toast } = useToast();
   const [editing, setEditing] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [pending, setPending] = useState(false);
+  const [movingBack, setMovingBack] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const isArchived = envelope.archivedAt !== null;
+  const closeMoveBack = useCallback(() => setMovingBack(false), []);
+  const closeDelete = useCallback(() => setDeleting(false), []);
   const closeEdit = useCallback(() => setEditing(false), []);
   const closeConfirm = useCallback(() => setConfirming(false), []);
 
@@ -182,10 +187,20 @@ export function EnvelopeDetailActions({ envelope }: { envelope: EnvelopeView }) 
       <Button variant="secondary" onClick={() => setEditing(true)}>
         Edit
       </Button>
+      {envelope.balanceSen > 0 && (
+        <Button variant="secondary" onClick={() => setMovingBack(true)}>
+          Move back to Unallocated
+        </Button>
+      )}
       <Button variant={isArchived ? "secondary" : "ghost"} onClick={() => setConfirming(true)}>
         {isArchived ? "Unarchive" : "Archive"}
       </Button>
+      <Button variant="ghost" className="text-destructive" onClick={() => setDeleting(true)}>
+        Delete envelope
+      </Button>
       <EnvelopeFormSheet open={editing} onClose={closeEdit} envelope={envelope} />
+      <MoveBackSheet envelope={envelope} open={movingBack} onClose={closeMoveBack} />
+      <DeleteEnvelopeSheet envelope={envelope} others={others} open={deleting} onClose={closeDelete} />
       <ConfirmSheet
         open={confirming}
         onClose={closeConfirm}

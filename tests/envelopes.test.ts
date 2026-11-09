@@ -94,6 +94,31 @@ describe("envelopes service", () => {
   });
 });
 
+describe("duplicate envelope names", () => {
+  it("blocks a second active envelope with the same name, ignoring case and spaces", async () => {
+    const u = await makeTestUser();
+    const food = await createEnvelope(u.id, env("Food"));
+    await expect(createEnvelope(u.id, env(" food "))).rejects.toMatchObject({ code: "DUPLICATE" });
+    const fun = await createEnvelope(u.id, env("Fun"));
+    await expect(updateEnvelope(u.id, { id: fun.id, name: "FOOD" })).rejects.toMatchObject({ code: "DUPLICATE" });
+    await updateEnvelope(u.id, { id: food.id, name: "food" }); // renaming itself is fine
+    await archiveEnvelope(u.id, food.id);
+    const again = await createEnvelope(u.id, env("Food")); // archived names are free
+    await expect(unarchiveEnvelope(u.id, food.id)).rejects.toMatchObject({ code: "DUPLICATE" });
+    await createEnvelope(bob.id, env("Food")); // per person
+    expect(again.name).toBe("Food");
+  });
+});
+
+describe("envelope targets", () => {
+  it("sets and then explicitly clears a target", async () => {
+    const u = await makeTestUser();
+    const e = await createEnvelope(u.id, { name: "Rent", colour: null, targetSen: 120000 });
+    expect(e.targetSen).toBe(120000);
+    expect((await updateEnvelope(u.id, { id: e.id, targetSen: null })).targetSen).toBeNull();
+  });
+});
+
 describe("envelope icons", () => {
   it("saves an icon on create, changes and clears it on update, and lists it", async () => {
     const owner = await makeTestUser();

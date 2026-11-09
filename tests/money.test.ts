@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatSen, formatSenPlain, parseSen } from "../src/lib/money";
+import { MAX_SEN, formatSen, formatSenPlain, parseSen } from "../src/lib/money";
 import { addDays, formatRange, isISODate } from "../src/lib/dates";
 
 describe("parseSen", () => {
@@ -7,11 +7,32 @@ describe("parseSen", () => {
     expect(parseSen("12")).toBe(1200);
     expect(parseSen("12.5")).toBe(1250);
     expect(parseSen("12.50")).toBe(1250);
+    expect(parseSen("20.50")).toBe(2050);
     expect(parseSen("1,250.00")).toBe(125000);
+    expect(parseSen("1,000")).toBe(100000);
+    expect(parseSen("1,000.50")).toBe(100050);
+    expect(parseSen("12,345,678")).toBe(1234567800);
     expect(parseSen(" RM 0.05 ")).toBe(5);
   });
-  it("rejects bad input", () => {
-    for (const bad of ["", "-1", "1.234", "abc", "1e3", "0x10", "."]) expect(parseSen(bad)).toBeNull();
+  it("reads a comma followed by 1–2 digits as the decimal point", () => {
+    expect(parseSen("20,50")).toBe(2050); // the bug: this used to save RM 2,050.00
+    expect(parseSen("20,5")).toBe(2050);
+    expect(parseSen("0,99")).toBe(99);
+  });
+  it("parses zero (senSchema then refuses it as not positive)", () => {
+    expect(parseSen("0")).toBe(0);
+    expect(parseSen("0.00")).toBe(0);
+  });
+  it("accepts up to MAX_SEN and no further", () => {
+    expect(parseSen("21,474,836.47")).toBe(MAX_SEN);
+    expect(parseSen("21474836.48")).toBeNull();
+    expect(parseSen("99999999999999999999")).toBeNull();
+  });
+  it("rejects bad input, never silently dropping a comma", () => {
+    for (const bad of ["", "-1", "-12.50", "−5", "1.234", "12.345", "abc", "12a", "1e3", "1E3", "0x10", ".", ",", "12,", ",50",
+      "12,345.678", "1,00,000", "12,34,5", "1.000,50", "1,0000", "12 50", "Infinity", "NaN"]) {
+      expect(parseSen(bad), bad).toBeNull();
+    }
   });
 });
 

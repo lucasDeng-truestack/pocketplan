@@ -5,7 +5,7 @@ import type { EnvelopeIcon, ISODate, RecurringView, Sen, TransactionView } from 
 export type EnvelopeInfo = { name: string; colour: string | null; icon?: EnvelopeIcon | null; archived: boolean };
 export type EnvelopesById = Record<string, EnvelopeInfo>;
 
-/** null = Unallocated. Envelopes are never deleted, so a missing id only happens on stale props. */
+/** null = Unallocated. Deleted envelopes arrive as "Name (deleted)" via listEnvelopeLabels; a missing id means stale props. */
 export function envelopeName(id: string | null, envelopes: EnvelopesById): string {
   if (!id) return "Unallocated";
   return envelopes[id]?.name ?? "Unknown envelope";
@@ -21,6 +21,7 @@ export function transactionLabel(tx: TransactionView, envelopes: EnvelopesById):
       return `Refund · ${envelopeName(tx.envelopeId, envelopes)}`;
     case "TRANSFER":
       if (!tx.fromEnvelopeId) return `Allocation → ${envelopeName(tx.toEnvelopeId, envelopes)}`;
+      if (!tx.toEnvelopeId) return `Moved back · ${envelopeName(tx.fromEnvelopeId, envelopes)}`;
       return `${envelopeName(tx.fromEnvelopeId, envelopes)} → ${envelopeName(tx.toEnvelopeId, envelopes)}`;
   }
 }
@@ -34,7 +35,7 @@ export function transactionKind(tx: TransactionView): string {
     case "REFUND":
       return "Refund";
     case "TRANSFER":
-      return tx.fromEnvelopeId ? "Transfer" : "Allocation";
+      return !tx.fromEnvelopeId ? "Allocation" : !tx.toEnvelopeId ? "Moved back to Unallocated" : "Transfer";
   }
 }
 

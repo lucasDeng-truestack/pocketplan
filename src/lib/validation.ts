@@ -1,5 +1,6 @@
 import * as z from "zod";
 import { addDays, isISODate, todayKL } from "./dates";
+import { MAX_SEN } from "./money";
 import { COLOR_MODES, ENVELOPE_COLOURS, ENVELOPE_ICONS, THEMES } from "./types";
 
 // ---- envelopes ----
@@ -12,7 +13,7 @@ export const envelopeNameSchema = z
 export const envelopeColourSchema = z.enum(ENVELOPE_COLOURS).nullable();
 export const envelopeIconSchema = z.enum(ENVELOPE_ICONS).nullable();
 /** Postgres Int column: anything above this fails in the database, so reject it at the boundary. */
-export const MAX_SEN = 2_147_483_647;
+export { MAX_SEN };
 export const senSchema = z.number().int().positive().max(MAX_SEN, "That amount is too large");
 export const targetSenSchema = senSchema.nullable();
 export const createEnvelopeSchema = z.object({
@@ -69,6 +70,9 @@ export const recordRefundSchema = z.object({
   note: noteSchema,
 });
 export const transactionIdSchema = z.object({ id: idSchema });
+export const undoSplitSchema = z.object({ batchId: z.string().uuid() });
+/** moveToEnvelopeId null = the balance goes to Unallocated. */
+export const deleteEnvelopeSchema = z.object({ id: idSchema, moveToEnvelopeId: idSchema.nullable() });
 export const listTransactionsSchema = z
   .object({
     type: z.enum(["INCOME", "EXPENSE", "REFUND", "TRANSFER"]).optional(),

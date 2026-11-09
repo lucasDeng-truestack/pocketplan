@@ -7,6 +7,7 @@ import { prismaAdapter } from "better-auth/adapters/prisma";
 import { nextCookies } from "better-auth/next-js";
 import { db } from "@/server/db";
 import { sendEmail } from "@/server/email/send";
+import { AppError } from "@/server/errors";
 
 // Fail at startup, not on the first sign-in: a weak or missing secret makes sessions forgeable.
 const secret = process.env.BETTER_AUTH_SECRET;
@@ -32,6 +33,8 @@ export const auth = betterAuth({
         },
   // Shared across serverless instances (the in-memory default is per instance). Off in dev so local retries never lock you out.
   rateLimit: { enabled: process.env.NODE_ENV === "production", storage: "database", modelName: "rateLimit" },
+  // Sliding 30-day sessions: any request after a day of use pushes expiry out again, so active people stay signed in.
+  session: { expiresIn: 60 * 60 * 24 * 30, updateAge: 60 * 60 * 24 },
   emailAndPassword: {
     enabled: true,
     minPasswordLength: 8,
@@ -97,6 +100,15 @@ const getSessionUser = cache(async (): Promise<{ id: string; email: string } | n
 export async function requireUser(): Promise<{ id: string; email: string }> {
   const user = await getSessionUser();
   if (!user) redirect("/sign-in");
+  return user;
+}
+
+export const SESSION_ENDED_MESSAGE = "Your session ended, so this wasn't saved. Sign in again, then try once more.";
+
+/** For server actions: like requireUser, but an ended session is an UNAUTHORIZED result the screen shows, not a redirect. */
+export async function actionUser(): Promise<{ id: string; email: string }> {
+  const user = await getSessionUser();
+  if (!user) throw new AppError("UNAUTHORIZED", SESSION_ENDED_MESSAGE);
   return user;
 }
 

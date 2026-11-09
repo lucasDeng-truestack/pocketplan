@@ -96,3 +96,16 @@ Reports: `reports/build.ts` computes opening (day before start), activity and cl
 - **Insights (`src/server/insights/service.ts`):** read-only; parameterised raw SQL aggregates bounded to ≤ 92 days (daily) and ≤ 13 months (monthly). `getDashboard`, `getEnvelopesInsights`, `getMonthInsights`, `getEnvelopeGrid`. Per-request dedupe via React `cache()`: `getCurrentBalances`, `listActiveEnvelopesCached` (read paths only; writes keep reading through their transaction client).
 - **Health score (`src/lib/health.ts`, pure):** four parts × 0–25 (runway, envelopes at risk, buffer = unallocated + envelope surplus beyond pace until next income, spending vs income over 30 days; with no income it scores what you hold against two months of spending); bands healthy ≥ 75, watch 50–74, at risk < 50; null with no activity. Floats only for scores and ratios, never amounts.
 - **Search:** Activity `?q=` matches merchant/note case-insensitively (LIKE wildcards escaped) or an exact amount.
+
+
+## v1.2 removing money (2026-11-10)
+
+Confirmed by Lucas: real delete for income entries and envelopes; comma as decimal; undo a whole split.
+
+- `parseSen` (src/lib/money.ts) is the one amount parser: "1,000" is thousands, "20,50" is RM 20.50, anything else with a comma, more than 2 decimals, a sign, an exponent or above MAX_SEN is null. The server re-validates integers with `senSchema`.
+- Server actions authenticate with `actionUser()` inside `toResult`: an ended session returns `UNAUTHORIZED` ("Your session ended, so this wasn't saved…") instead of redirecting and losing the action. Sessions slide: 30 days, refreshed daily.
+- Envelope names are unique among active envelopes (case-insensitive, trimmed): create, rename and unarchive check under `lockUser`.
+- Move back to Unallocated = TRANSFER with `toEnvelopeId` null (Activity: "Moved back · Name"); undo = void.
+- `allocate` stamps one `batchId` on every row it creates; `undoSplit` voids the whole batch, refused if the money was spent.
+- `deleteIncome` deletes the entry and all its correction versions, refused with the shortfall if Unallocated would go negative.
+- `deleteEnvelope` moves the balance (logged transfer) to Unallocated or another envelope, saves name/colour/icon in `DeletedEnvelope`, stops repeats that spend from it, then deletes the row. Its past entries keep the id, show "Name (deleted)" via `listEnvelopeLabels`, and can't be voided, restored or edited (`assertEnvelopesExist`).

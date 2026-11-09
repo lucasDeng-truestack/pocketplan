@@ -31,6 +31,15 @@ async function nextSortOrder(tx: Prisma.TransactionClient, userId: string): Prom
   return (_max.sortOrder ?? -1) + 1;
 }
 
+/** Active envelope names are unique per person, ignoring case and surrounding spaces. Call under lockUser. */
+async function assertNameFree(tx: Prisma.TransactionClient, userId: string, name: string, exceptId?: string): Promise<void> {
+  const clash = await tx.envelope.findFirst({
+    where: { userId, archivedAt: null, name: { equals: name.trim(), mode: "insensitive" }, ...(exceptId ? { id: { not: exceptId } } : {}) },
+    select: { name: true },
+  });
+  if (clash) throw new AppError("DUPLICATE", `You already have an envelope called ${clash.name}`);
+}
+
 const ORDER: Prisma.EnvelopeOrderByWithRelationInput[] = [{ sortOrder: "asc" }, { createdAt: "asc" }];
 
 /** Pass `balances` when the caller already has them, so the page shows one consistent snapshot. */
@@ -65,6 +74,18 @@ export async function listEnvelopeNames(
   return rows.map((e) => ({ ...e, icon: toIcon(e.icon), archivedAt: e.archivedAt ? e.archivedAt.toISOString() : null }));
 }
 
+/** listEnvelopeNames plus deleted envelopes ("Food (deleted)", treated as archived), for labelling past entries. */
+export async function listEnvelopeLabels(userId: string): ReturnType<typeof listEnvelopeNames> {
+  const [names, deleted] = await Promise.all([
+    listEnvelopeNames(userId),
+    db.deletedEnvelope.findMany({ where: { userId }, orderBy: { deletedAt: "asc" } }), // bounded like envelopes: tens
+  ]);
+  return [
+    ...names,
+    ...deleted.map((d) => ({ id: d.id, name: `${d.name} (deleted)`, colour: d.colour, icon: toIcon(d.icon), archivedAt: d.deletedAt.toISOString() })),
+  ];
+}
+
 export async function getEnvelope(userId: string, id: string): Promise<EnvelopeView> {
   const [row, balances] = await Promise.all([db.envelope.findFirst({ where: { id, userId } }), getBalances(userId)]);
   if (!row) throw notFound();
@@ -76,7 +97,8 @@ export async function createEnvelope(
   input: { name: string; colour: string | null; icon?: EnvelopeIcon | null; targetSen: Sen | null },
 ): Promise<EnvelopeView> {
   const row = await db.$transaction(async (tx) => {
-    await lockUser(tx, userId); // two concurrent creates must not share a sortOrder
+    await lockUser(tx, userId); // two concurrent creates must not share a sortOrder or a name
+    await assertNameFree(tx, userId, input.name);
     const sortOrder = await nextSortOrder(tx, userId);
     return tx.envelope.create({
       data: { userId, name: input.name, colour: input.colour, icon: input.icon ?? null, targetSen: input.targetSen, sortOrder },
@@ -90,8 +112,13 @@ export async function updateEnvelope(
   input: { id: string; name?: string; colour?: string | null; icon?: EnvelopeIcon | null; targetSen?: Sen | null },
 ): Promise<EnvelopeView> {
   const { id, ...data } = input;
-  const { count } = await db.envelope.updateMany({ where: { id, userId }, data });
-  if (count === 0) throw notFound();
+  await db.$transaction(async (tx) => {
+    await lockUser(tx, userId);
+    const row = await tx.envelope.findFirst({ where: { id, userId }, select: { archivedAt: true } });
+    if (!row) throw notFound();
+    if (data.name !== undefined && !row.archivedAt) await assertNameFree(tx, userId, data.name, id);
+    await tx.envelope.update({ where: { id, userId }, data });
+  }, TX_OPTIONS);
   return getEnvelope(userId, id);
 }
 
@@ -128,6 +155,7 @@ export async function unarchiveEnvelope(userId: string, id: string): Promise<voi
     const row = await tx.envelope.findFirst({ where: { id, userId } });
     if (!row) throw notFound();
     if (!row.archivedAt) return;
+    await assertNameFree(tx, userId, row.name, id);
     const sortOrder = await nextSortOrder(tx, userId);
     await tx.envelope.update({ where: { id, userId }, data: { archivedAt: null, sortOrder } });
   }, TX_OPTIONS);

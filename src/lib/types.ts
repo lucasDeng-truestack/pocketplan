@@ -96,6 +96,8 @@ export type TransactionView = {
   correctedById: string | null;
   /** Recorded from this recurring item. */
   recurringId: string | null;
+  /** Saved together in one Split money / Fill to target; "Undo split" voids the whole batch. */
+  batchId: string | null;
 };
 
 export type ReportParams = {

@@ -2,7 +2,7 @@ import "server-only";
 import type { Transaction } from "@prisma/client";
 import { db } from "@/server/db";
 import { AppError } from "@/server/errors";
-import { listActiveEnvelopesCached, listEnvelopeNames } from "@/server/envelopes/service";
+import { listActiveEnvelopesCached, listEnvelopeLabels } from "@/server/envelopes/service";
 import { getBalances, getCurrentBalances } from "@/server/ledger/balances";
 import { dbDateToIso, isoToDbDate } from "@/server/ledger/dates";
 import { listTransactions } from "@/server/ledger/service";
@@ -151,7 +151,7 @@ export async function getDashboard(userId: string, range: DashboardRange): Promi
   const rangeSpent = [...spentByEnvelope(rangeRows, () => true)].filter(([, sen]) => sen > 0);
   const labels = new Map<string, { name: string; colour: string | null }>(envelopes.map((e) => [e.id, e]));
   if (rangeSpent.some(([id]) => !labels.has(id))) {
-    for (const e of await listEnvelopeNames(userId)) labels.set(e.id, e); // archived envelopes with spending in range
+    for (const e of await listEnvelopeLabels(userId)) labels.set(e.id, e); // archived and deleted envelopes with spending in range
   }
   const spentByEnvelopeList = rangeSpent
     .map(([envelopeId, spentSen]) => ({
@@ -308,6 +308,7 @@ async function expenseViews(userId: string, rows: Transaction[]): Promise<Transa
     correctsId: t.correctsId,
     correctedById: null, // non-voided rows only; a corrected original is always voided
     recurringId: t.recurringId,
+    batchId: t.batchId,
   }));
 }
 

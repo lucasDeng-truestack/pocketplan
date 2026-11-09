@@ -5,7 +5,8 @@ import { AppError, insufficient } from "@/server/errors";
 import { TX_OPTIONS, lockUser } from "@/server/lock";
 import { getBalances } from "@/server/ledger/balances";
 import { dbDateToIso, isoToDbDate } from "@/server/ledger/dates";
-import { formatISODate } from "@/lib/dates";
+import { randomUUID } from "node:crypto";
+import { formatISODate, todayKL } from "@/lib/dates";
 import { formatSen, parseSen } from "@/lib/money";
 import type { ISODate, Sen, TransactionView } from "@/lib/types";
 
@@ -60,6 +61,14 @@ async function refundedSum(tx: Tx | typeof db, userId: string, expenseId: string
     _sum: { amountSen: true },
   });
   return _sum.amountSen ?? 0;
+}
+
+/** Entries of a deleted envelope stay in Activity but are frozen: changing them would move money into an envelope that no longer exists. */
+async function assertEnvelopesExist(tx: Tx, userId: string, rows: Pick<Transaction, "envelopeId" | "fromEnvelopeId" | "toEnvelopeId">[]): Promise<void> {
+  const ids = [...new Set(rows.flatMap((r) => [r.envelopeId, r.fromEnvelopeId, r.toEnvelopeId]).filter((id): id is string => id !== null))];
+  if (ids.length === 0) return;
+  const found = await tx.envelope.count({ where: { userId, id: { in: ids } } });
+  if (found !== ids.length) throw new AppError("VALIDATION", "This entry belongs to a deleted envelope, so it can't be changed");
 }
 
 const text = (s: string | null | undefined) => (s ? s : null);
@@ -205,6 +214,7 @@ export async function allocate(
     const { unallocatedSen } = await currentBalances(tx, userId);
     if (sum > unallocatedSen) throw insufficient("Unallocated", unallocatedSen, sum);
     const occurredOn = isoToDbDate(input.occurredOn);
+    const batchId = randomUUID(); // one split = one batch, so "Undo split" can void it as a whole
     await tx.transaction.createMany({
       data: input.items.map((i) => ({
         userId,
@@ -213,6 +223,7 @@ export async function allocate(
         fromEnvelopeId: null,
         toEnvelopeId: i.envelopeId,
         occurredOn,
+        batchId,
       })),
     });
   });
@@ -236,12 +247,88 @@ export async function voidTransaction(userId: string, input: { id: string }): Pr
   await write(userId, async (tx) => {
     const row = await tx.transaction.findFirst({ where: { id: input.id, userId, voidedAt: null } });
     if (!row) throw transactionNotFound();
+    await assertEnvelopesExist(tx, userId, [row]);
     const now = new Date();
     await tx.transaction.update({ where: { id: row.id, userId }, data: { voidedAt: now } });
     if (row.type === "EXPENSE") {
       await tx.transaction.updateMany({ where: { userId, type: "REFUND", refundOfId: row.id, voidedAt: null }, data: { voidedAt: now } });
     }
     await assertBalancesValid(tx, userId, "Voiding");
+  });
+}
+
+/** Undo a whole Split money / Fill to target: void every live row saved in that batch, back to Unallocated. */
+export async function undoSplit(userId: string, input: { batchId: string }): Promise<{ count: number }> {
+  return write(userId, async (tx) => {
+    const rows = await tx.transaction.findMany({ where: { userId, batchId: input.batchId, type: "TRANSFER", voidedAt: null } });
+    if (rows.length === 0) throw new AppError("NOT_FOUND", "This split was already undone");
+    await assertEnvelopesExist(tx, userId, rows);
+    await tx.transaction.updateMany({ where: { userId, id: { in: rows.map((r) => r.id) } }, data: { voidedAt: new Date() } });
+    await assertBalancesValid(tx, userId, "Voiding");
+    return { count: rows.length };
+  });
+}
+
+/** Every version of an entry (the rows linked by correctsId, voided or not). Bounded by how often it was edited. */
+async function versionIds(tx: Tx, userId: string, row: Transaction): Promise<string[]> {
+  let rootId = row.id;
+  for (let up = row.correctsId; up; ) {
+    const parent = await tx.transaction.findFirst({ where: { id: up, userId }, select: { id: true, correctsId: true } });
+    if (!parent) break;
+    rootId = parent.id;
+    up = parent.correctsId;
+  }
+  const ids = [rootId];
+  for (let frontier = [rootId]; frontier.length > 0; ) {
+    const children = await tx.transaction.findMany({ where: { userId, correctsId: { in: frontier } }, select: { id: true } });
+    frontier = children.map((c) => c.id);
+    ids.push(...frontier);
+  }
+  return ids;
+}
+
+/**
+ * Permanently delete an income entry and all its edited versions (Lucas chose real delete, 2026-11-10).
+ * Refused, with the shortfall, when that money was already split and Unallocated would go negative.
+ */
+export async function deleteIncome(userId: string, input: { id: string }): Promise<void> {
+  await write(userId, async (tx) => {
+    const row = await tx.transaction.findFirst({ where: { id: input.id, userId, type: "INCOME" } });
+    if (!row) throw transactionNotFound();
+    await tx.transaction.deleteMany({ where: { userId, id: { in: await versionIds(tx, userId, row) } } });
+    const { unallocatedSen } = await currentBalances(tx, userId);
+    if (unallocatedSen < 0) {
+      throw new AppError(
+        "INSUFFICIENT",
+        `Part of this income is already in envelopes. Move ${formatSen(-unallocatedSen)} back to Unallocated first, then delete it.`,
+      );
+    }
+  });
+}
+
+/**
+ * Permanently delete an envelope (Lucas chose real delete, 2026-11-10). Its balance first moves to Unallocated or to
+ * another envelope (a logged transfer), its name is kept in DeletedEnvelope for Activity labels, its past entries keep
+ * their envelope id and are frozen, and repeats that spend from it are stopped.
+ */
+export async function deleteEnvelope(userId: string, input: { id: string; moveToEnvelopeId: string | null }): Promise<void> {
+  await write(userId, async (tx) => {
+    const envelope = await ownedEnvelope(tx, userId, input.id);
+    const balance = (await currentBalances(tx, userId)).envelopes[envelope.id] ?? 0;
+    if (balance < 0) throw new AppError("INSUFFICIENT", `${envelope.name} is below zero. Fix that first.`);
+    if (balance > 0) {
+      if (input.moveToEnvelopeId === envelope.id) throw new AppError("VALIDATION", "Choose a different envelope for the money");
+      await insertTransfer(tx, userId, {
+        fromEnvelopeId: envelope.id,
+        toEnvelopeId: input.moveToEnvelopeId,
+        amountSen: balance,
+        occurredOn: todayKL(),
+        note: `Moved out before deleting ${envelope.name}`,
+      });
+    }
+    await tx.deletedEnvelope.create({ data: { id: envelope.id, userId, name: envelope.name, colour: envelope.colour, icon: envelope.icon } });
+    await tx.recurringItem.updateMany({ where: { userId, envelopeId: envelope.id, endedAt: null }, data: { endedAt: new Date() } });
+    await tx.envelope.delete({ where: { id: envelope.id, userId } });
   });
 }
 
@@ -276,6 +363,7 @@ export async function unvoidTransaction(userId: string, input: { id: string }): 
   await write(userId, async (tx) => {
     const row = await tx.transaction.findFirst({ where: { id: input.id, userId, voidedAt: { not: null } } });
     if (!row) throw transactionNotFound();
+    await assertEnvelopesExist(tx, userId, [row]);
     const live = await liveVersion(tx, userId, row);
     if (live === "newer") throw new AppError("VALIDATION", "This entry was corrected. Void the correction instead.");
     if (live === "other") throw new AppError("VALIDATION", "Another version of this entry is active. Void it first.");
@@ -314,6 +402,7 @@ export async function correctTransaction(
   return write(userId, async (tx) => {
     const original = await tx.transaction.findFirst({ where: { id: input.id, userId, voidedAt: null } });
     if (!original) throw transactionNotFound();
+    await assertEnvelopesExist(tx, userId, [original]);
     const type = original.type;
     // Empty merchant counts as not supplied: forms send `merchant || undefined`, but "" is harmless anywhere.
     const supplied = {
@@ -376,6 +465,7 @@ function toView(t: Transaction, refundedSen: Sen, correctedById: string | null):
     correctsId: t.correctsId,
     correctedById,
     recurringId: t.recurringId,
+    batchId: t.batchId,
   };
 }
 

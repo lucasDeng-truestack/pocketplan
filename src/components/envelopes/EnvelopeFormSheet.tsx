@@ -102,7 +102,16 @@ function EnvelopeForm({ envelope, onDone }: { envelope?: EnvelopeView; onDone: (
         onChange={(e) => setTarget(e.target.value)}
         error={targetError}
       />
-      <p className="-mt-3 text-xs text-muted-foreground">A goal for this envelope. It does not move any money.</p>
+      <div className="-mt-3 flex flex-wrap items-center justify-between gap-2">
+        <p className="text-xs text-muted-foreground">
+          {target.trim() === "" ? "No target. " : ""}A goal for this envelope. It does not move any money.
+        </p>
+        {target.trim() !== "" && (
+          <Button type="button" variant="ghost" size="sm" onClick={() => { setTarget(""); setTargetError(null); }}>
+            Clear target
+          </Button>
+        )}
+      </div>
 
       {error && (
         <p role="alert" className="text-sm text-destructive">

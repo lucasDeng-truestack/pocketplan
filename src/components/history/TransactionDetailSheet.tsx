@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useState, type FormEvent, type ReactNode } from "react";
-import { correctTransaction, recordRefund, unvoidTransaction, voidTransaction } from "@/server/actions/ledger";
+import Link from "next/link";
+import { correctTransaction, deleteIncome, recordRefund, undoSplit, unvoidTransaction, voidTransaction } from "@/server/actions/ledger";
 import { Button, ConfirmSheet, Input, MoneyInput, Sheet, parsePositiveSen } from "@/components/ui";
 import { useRunAction } from "@/components/ledger/useRunAction";
 import { entryDateError, formatISODate, toISODate, todayKL } from "@/lib/dates";
@@ -10,7 +11,8 @@ import type { ActionResult, TransactionView } from "@/lib/types";
 import { EditTransactionForm } from "./EditTransactionForm";
 import { envelopeName, signedAmount, transactionKind, type EnvelopesById } from "./labels";
 
-type Mode = "view" | "confirm-void" | "refund" | "edit";
+type Mode = "view" | "confirm-void" | "confirm-delete" | "confirm-undo-split" | "refund" | "edit";
+const CONFIRMS: Mode[] = ["confirm-void", "confirm-delete", "confirm-undo-split"];
 
 /**
  * Detail, edit (a correction that keeps the original), void/restore and refund for one entry. The void confirm is a sibling ConfirmSheet,
@@ -36,17 +38,19 @@ export function TransactionDetailSheet({
 
   async function run(action: () => Promise<ActionResult<unknown>>, successMessage: string) {
     const ok = await runAction(action, successMessage, { onSuccess: onClose });
-    if (!ok) setMode((m) => (m === "confirm-void" ? "view" : m)); // show the reason in the detail sheet
+    if (!ok) setMode((m) => (CONFIRMS.includes(m) ? "view" : m)); // show the reason in the detail sheet
   }
 
   if (!tx) return null;
   const voided = tx.voidedAt !== null;
   const isExpense = tx.type === "EXPENSE";
   const refundable = isExpense ? tx.amountSen - tx.refundedSen : 0; // the one client sum: remaining refundable
+  const isIncome = tx.type === "INCOME";
+  const batchId = tx.type === "TRANSFER" && !voided ? tx.batchId : null;
 
   return (
     <>
-      <Sheet open={mode !== "confirm-void"} onClose={onClose} title={transactionKind(tx)}>
+      <Sheet open={!CONFIRMS.includes(mode)} onClose={onClose} title={transactionKind(tx)}>
         {mode === "edit" ? (
           <EditTransactionForm
             tx={tx}
@@ -107,6 +111,14 @@ export function TransactionDetailSheet({
             {error && (
               <p role="alert" className="text-sm text-destructive">
                 {error}
+                {isIncome && error.includes("back to Unallocated") && (
+                  <>
+                    {" "}
+                    <Link href="/allocate" onClick={onClose} className="font-medium underline">
+                      Move money back
+                    </Link>
+                  </>
+                )}
               </p>
             )}
 
@@ -130,6 +142,16 @@ export function TransactionDetailSheet({
                   Void entry
                 </Button>
               )}
+              {batchId && (
+                <Button variant="secondary" onClick={() => setMode("confirm-undo-split")} disabled={pending}>
+                  Undo this split
+                </Button>
+              )}
+              {isIncome && (
+                <Button variant="ghost" className="text-destructive" onClick={() => setMode("confirm-delete")} disabled={pending}>
+                  Delete income
+                </Button>
+              )}
             </div>
           </div>
         )}
@@ -145,6 +167,25 @@ export function TransactionDetailSheet({
         }`}
         confirmLabel="Void entry"
         danger
+      />
+      <ConfirmSheet
+        open={mode === "confirm-delete"}
+        onClose={backToView}
+        onConfirm={() => run(() => deleteIncome({ id: tx.id }), "Income deleted")}
+        pending={pending}
+        title="Delete this income?"
+        message={`${formatSen(tx.amountSen)} is removed for good, with any earlier versions of it. This can't be undone. If some of it is already in envelopes, you'll be asked to move that back first.`}
+        confirmLabel="Delete income"
+        danger
+      />
+      <ConfirmSheet
+        open={mode === "confirm-undo-split"}
+        onClose={backToView}
+        onConfirm={() => batchId && run(() => undoSplit({ batchId }), "Split undone. The money is back in Unallocated.")}
+        pending={pending}
+        title="Undo this split?"
+        message="Every envelope in this split gives its amount back to Unallocated. The entries stay in Activity as voided."
+        confirmLabel="Undo split"
       />
     </>
   );
@@ -172,7 +213,7 @@ function EntryLink({
 
 function envelopeLabel(id: string | null, envelopes: EnvelopesById): string {
   const name = envelopeName(id, envelopes);
-  return id && envelopes[id]?.archived ? `${name} (archived)` : name;
+  return id && envelopes[id]?.archived && !name.endsWith("(deleted)") ? `${name} (archived)` : name;
 }
 
 function Field({ label, children }: { label: string; children: ReactNode }) {

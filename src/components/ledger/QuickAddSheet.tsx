@@ -8,6 +8,7 @@ import { createRecurring, recordRecurring } from "@/server/actions/recurring";
 import { Button, Sheet, parsePositiveSen } from "@/components/ui";
 import { cn } from "@/lib/cn";
 import { addDays, entryDateError, formatISODate, isISODate, occurrenceDate, todayKL } from "@/lib/dates";
+import { formatSen } from "@/lib/money";
 import type { ActionResult, EnvelopeView, RecurringCadence, Sen } from "@/lib/types";
 import { AmountEntry } from "./AmountEntry";
 import { EnvelopeChips, type EnvelopeChip } from "./EnvelopeChips";
@@ -308,6 +309,22 @@ function repeatHint(date: string, today: string, cadence: RecurringCadence): str
   return `Recorded now, then due again on ${formatISODate(occurrenceDate(date, cadence, 1))}. You confirm each one; nothing is recorded automatically.`;
 }
 
+/** "Food has RM 10.00, short by RM 5.00" when the chosen source can't cover the amount (the server says the same). */
+function shortfall(options: EnvelopeChip[], id: string | null, amountSen: Sen | null): string | null {
+  const source = options.find((o) => o.id === id);
+  const have = source?.balanceSen;
+  if (!source || have === undefined || amountSen === null || amountSen <= have) return null;
+  return `${source.name} has ${formatSen(have)}, short by ${formatSen(amountSen - have)}`;
+}
+
+function Shortfall({ message }: { message: string | null }) {
+  return message ? (
+    <p role="alert" className="-mt-2 text-sm text-destructive">
+      {message}
+    </p>
+  ) : null;
+}
+
 function SaveBar({ error, pending, disabled, children }: { error: string | null; pending: boolean; disabled: boolean; children: ReactNode }) {
   return (
     <div className="sticky bottom-0 -mx-4 flex flex-col gap-2 bg-card px-4 pt-2">
@@ -392,11 +409,14 @@ function ExpenseForm({ envelopes, unallocatedSen, initialRepeats, onDone }: Form
   const { pending, error, save } = useSave(onDone);
   const amountSen = parsePositiveSen(amount);
 
-  const canSave = amountSen !== null && dateError === null;
+  const sourceOptions: EnvelopeChip[] = [{ id: null, name: "Unallocated", colour: null, balanceSen: unallocatedSen }, ...chipsFrom(envelopes)];
+  // Only a spend recorded now is checked against today's balance; a future repeat is checked when it is recorded.
+  const short = repeats && date > today ? null : shortfall(sourceOptions, envelopeId, amountSen);
+  const canSave = amountSen !== null && dateError === null && short === null;
 
   function onSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    if (amountSen === null || dateError) return;
+    if (amountSen === null || dateError || short) return;
     const recordNow = date <= today;
     const fields = { amountSen, envelopeId: envelopeId ?? undefined, merchant: merchant || undefined, note: note || undefined };
     if (repeats) {
@@ -415,10 +435,11 @@ function ExpenseForm({ envelopes, unallocatedSen, initialRepeats, onDone }: Form
         <AmountEntry value={amount} onChange={setAmount} />
         <EnvelopeChips
           label="Envelope (optional)"
-          options={[{ id: null, name: "Unallocated", colour: null, balanceSen: unallocatedSen }, ...chipsFrom(envelopes)]}
+          options={sourceOptions}
           value={envelopeId}
           onChange={setEnvelopeId}
         />
+        <Shortfall message={short} />
         <DetailRows>
           <DateRow date={date} setDate={setDate} min={earliest} max={latest} error={dateError} />
           <TextRow label="Merchant" value={merchant} onChange={setMerchant} placeholder="Optional" />
@@ -495,10 +516,11 @@ function TransferForm({ envelopes, unallocatedSen, onDone }: FormProps) {
 
   const options: EnvelopeChip[] = [{ id: null, name: "Unallocated", colour: null, balanceSen: unallocatedSen }, ...chipsFrom(envelopes)];
   const same = from === to;
+  const short = shortfall(options, from, amountSen);
 
   function onSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    if (amountSen === null || same || dateError) return;
+    if (amountSen === null || same || dateError || short) return;
     void save(() => transfer({ fromEnvelopeId: from, toEnvelopeId: to, amountSen, occurredOn: date, note: note || undefined }), "Transfer saved");
   }
 
@@ -506,6 +528,7 @@ function TransferForm({ envelopes, unallocatedSen, onDone }: FormProps) {
     <form onSubmit={onSubmit} noValidate className="flex flex-col gap-4">
       <AmountEntry value={amount} onChange={setAmount} />
       <EnvelopeChips label="From" options={options} value={from} onChange={setFrom} />
+      <Shortfall message={short} />
       <EnvelopeChips label="To" options={options} value={to} onChange={setTo} describedBy={same ? sameId : undefined} />
       {same && (
         <p id={sameId} className="-mt-2 text-sm text-destructive">
@@ -516,7 +539,7 @@ function TransferForm({ envelopes, unallocatedSen, onDone }: FormProps) {
         <DateRow date={date} setDate={setDate} max={today} error={dateError} />
         <TextRow label="Note" value={note} onChange={setNote} placeholder="Optional" />
       </DetailRows>
-      <SaveBar error={error} pending={pending} disabled={amountSen === null || same || dateError !== null}>
+      <SaveBar error={error} pending={pending} disabled={amountSen === null || same || dateError !== null || short !== null}>
         Save transfer
       </SaveBar>
     </form>

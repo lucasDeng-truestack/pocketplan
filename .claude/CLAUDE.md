@@ -32,7 +32,8 @@ Docker Postgres, not Neon; Neon is for production only. Agents never commit.
   business logic out of React components and behind a clean API from day one.
 - Dashboard: total remaining, unallocated, each envelope's balance, cash flow, health score (v1.1).
 - Tabs (v1.1): Dashboard / Activity / + / Envelopes / Insights; Settings (themes) and Share report in the top bar.
-- Envelopes: create, rename, reorder, archive (never delete history). Optional colour and
+- Envelopes: create, rename, reorder, archive, delete (Lucas, 2026-11-10: real delete; balance moves out first,
+  past entries keep the name via DeletedEnvelope and are frozen). Optional colour and
   budget target. Targets are goals, not funds.
 - Money in: opening balance and income raise unallocated money. Allocation moves money into
   an envelope without changing the total.
@@ -55,7 +56,8 @@ Docker Postgres, not Neon; Neon is for production only. Agents never commit.
 - Users cannot allocate money they do not have.
 - Overspending: block by default. Whether to allow negative envelope balances with a warning
   is an open decision for Lucas, with consequences spelled out.
-- Corrections preserve history and never double count. Prefer reversing entries over editing
+- Corrections preserve history and never double count. Exception confirmed by Lucas 2026-11-10: income entries can
+  be permanently deleted (all versions), refused while that would make Unallocated negative. Prefer reversing entries over editing
   amounts in place.
 
 ## Resend (email reports)

@@ -1,7 +1,8 @@
 import "./setup";
 import { afterAll, describe, expect, it, vi } from "vitest";
 import { db } from "@/server/db";
-import { auth } from "@/server/auth";
+import { SESSION_ENDED_MESSAGE, actionUser, auth } from "@/server/auth";
+import { toResult } from "@/server/errors";
 import { sendEmail } from "@/server/email/send";
 import { testDb } from "./helpers";
 
@@ -77,6 +78,18 @@ describe("account changes", () => {
     await auth.api.changeEmail({ headers, body: { newEmail: `new-${who}` } });
     expect(vi.mocked(sendEmail)).toHaveBeenCalledWith(expect.objectContaining({ to: who, subject: "Approve your PocketPlan email change" }));
     expect((await testDb.user.findUniqueOrThrow({ where: { email: who } })).email).toBe(who);
+  });
+});
+
+describe("server actions without a session", () => {
+  it("return an UNAUTHORIZED result instead of redirecting, so the screen can say nothing was saved", async () => {
+    let ran = false;
+    const result = await toResult(async () => {
+      await actionUser(); // next/headers is mocked with no cookies: no session
+      ran = true;
+    });
+    expect(result).toEqual({ ok: false, code: "UNAUTHORIZED", message: SESSION_ENDED_MESSAGE });
+    expect(ran).toBe(false);
   });
 });
 

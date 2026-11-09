@@ -3,7 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requireUser } from "@/server/auth";
 import { AppError } from "@/server/errors";
-import { getEnvelope, listEnvelopeNames } from "@/server/envelopes/service";
+import { getEnvelope, listEnvelopeLabels } from "@/server/envelopes/service";
 import { listTransactions } from "@/server/ledger/service";
 import { EnvelopeDetailActions } from "@/components/envelopes/EnvelopeManager";
 import { targetProgress } from "@/components/envelopes/EnvelopeRow";
@@ -22,7 +22,7 @@ export default async function EnvelopePage({ params }: PageProps<"/envelopes/[id
       throw e;
     }),
     listTransactions(user.id, { envelopeId: id, limit: 10 }),
-    listEnvelopeNames(user.id), // names for transfer labels
+    listEnvelopeLabels(user.id), // names for transfer labels
   ]);
   const byId = Object.fromEntries(all.map((e) => [e.id, { name: e.name, colour: e.colour, icon: e.icon, archived: e.archivedAt !== null }]));
   const progress = targetProgress(envelope);
@@ -50,7 +50,10 @@ export default async function EnvelopePage({ params }: PageProps<"/envelopes/[id
         )}
       </div>
 
-      <EnvelopeDetailActions envelope={envelope} />
+      <EnvelopeDetailActions
+        envelope={envelope}
+        others={all.filter((e) => e.archivedAt === null && e.id !== envelope.id).map((e) => ({ id: e.id, name: e.name }))}
+      />
 
       <section className="flex flex-col gap-2">
         <div className="flex items-center justify-between gap-2">

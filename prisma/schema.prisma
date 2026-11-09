@@ -23,6 +23,7 @@ model User {
   reportSends    ReportSend[]
   recurringItems RecurringItem[]
   preference     Preference?
+  deletedEnvelopes DeletedEnvelope[]
 }
 
 model Session {
@@ -130,6 +131,8 @@ model Transaction {
   correctsId     String?
   /// recorded from this RecurringItem
   recurringId    String?
+  /// rows saved together by one Split money / Fill to target; "Undo split" voids them all
+  batchId        String?
   corrects       Transaction?    @relation("Corrections", fields: [correctsId], references: [id])
   corrections    Transaction[]   @relation("Corrections")
 
@@ -139,6 +142,21 @@ model Transaction {
   @@index([userId, toEnvelopeId])
   @@index([refundOfId])
   @@index([correctsId])
+  @@index([userId, batchId])
+}
+
+/// Name of an envelope that was deleted; its past transactions keep its id and show this name in Activity.
+model DeletedEnvelope {
+  /// the deleted envelope's id
+  id        String   @id
+  userId    String
+  name      String
+  colour    String?
+  icon      String?
+  deletedAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
 }
 
 enum ReportSendStatus {

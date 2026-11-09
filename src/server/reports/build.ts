@@ -177,6 +177,7 @@ async function periodTransactions(client: Prisma.TransactionClient, userId: stri
     correctsId: t.correctsId,
     correctedById: null, // only non-voided rows here; a corrected original is always voided
     recurringId: t.recurringId,
+    batchId: t.batchId,
   }));
   return { items, count };
 }

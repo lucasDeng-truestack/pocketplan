@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { requireUser } from "@/server/auth";
-import { listEnvelopes } from "@/server/envelopes/service";
+import { listEnvelopeLabels, listEnvelopes } from "@/server/envelopes/service";
 import { getDashboard } from "@/server/insights/service";
 import { CashFlowLine } from "@/components/dashboard/CashFlowLine";
 import { DashboardSummary } from "@/components/dashboard/DashboardSummary";
@@ -44,7 +44,10 @@ export default async function HomePage({ searchParams }: PageProps<"/">) {
   }
 
   const period = periodLabel(range, data.start);
-  const envelopesById = Object.fromEntries(all.map((e) => [e.id, { name: e.name, colour: e.colour, icon: e.icon, archived: e.archivedAt !== null }]));
+  // Labels include deleted envelopes, so recent entries of a deleted envelope still show its name.
+  const envelopesById = Object.fromEntries(
+    (await listEnvelopeLabels(user.id)).map((e) => [e.id, { name: e.name, colour: e.colour, icon: e.icon, archived: e.archivedAt !== null }]),
+  );
 
   return (
     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-12">
