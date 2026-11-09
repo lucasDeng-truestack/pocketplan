@@ -44,6 +44,15 @@ export const auth = betterAuth({
     resetPasswordTokenExpiresIn: 3600,
     revokeSessionsOnPasswordReset: true,
   },
+  user: {
+    // Two steps: the current address approves, then the new address confirms (sent by sendVerificationEmail below).
+    changeEmail: {
+      enabled: true,
+      sendChangeEmailConfirmation: async ({ user, newEmail, url }) => {
+        await sendEmail({ to: user.email, subject: "Approve your PocketPlan email change", html: changeEmailHtml(newEmail, url) });
+      },
+    },
+  },
   emailVerification: {
     sendOnSignUp: true,
     sendOnSignIn: true, // signing in unverified sends a fresh link (covers expired or lost emails)
@@ -66,9 +75,17 @@ function resetPasswordHtml(url: string): string {
 
 function verifyEmailHtml(url: string): string {
   const href = url.replace(/"/g, "%22");
-  return `<p>Welcome to PocketPlan. Tap the link below to confirm your email and sign in.</p>
+  return `<p>Tap the link below to confirm this email address for PocketPlan.</p>
 <p><a href="${href}">Confirm your email</a></p>
 <p>If you did not create an account, ignore this email. The link expires in 24 hours.</p>`;
+}
+
+function changeEmailHtml(newEmail: string, url: string): string {
+  const href = url.replace(/"/g, "%22");
+  const to = newEmail.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  return `<p>Someone asked to change your PocketPlan sign-in email to <strong>${to}</strong>.</p>
+<p><a href="${href}">Approve the change</a></p>
+<p>We will then send a link to the new address to confirm it. If you did not ask for this, ignore this email and change your password.</p>`;
 }
 
 // One session lookup per request, shared by the layout and the page.

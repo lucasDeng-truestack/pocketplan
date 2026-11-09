@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { requireUser } from "@/server/auth";
 import { getPreferences } from "@/server/preferences/service";
 import { SignOutButton } from "@/components/auth/SignOutButton";
+import { AccountForms } from "@/components/settings/AccountForms";
 import { AppearanceForm } from "@/components/settings/AppearanceForm";
 
 export const metadata: Metadata = { title: "Settings · PocketPlan" };
@@ -28,6 +29,7 @@ export default async function SettingsPage() {
         <p className="min-w-0 break-words text-sm">
           Signed in as <span className="font-medium">{user.email}</span>
         </p>
+        <AccountForms email={user.email} />
         <div className="self-start">
           <SignOutButton />
         </div>

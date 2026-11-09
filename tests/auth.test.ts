@@ -44,6 +44,42 @@ describe("email + password", () => {
   });
 });
 
+describe("account changes", () => {
+  const who = `acct-${Date.now()}@test.invalid`;
+  afterAll(async () => {
+    await testDb.user.deleteMany({ where: { email: who } });
+  });
+
+  async function signedIn(password: string): Promise<Headers> {
+    const { headers } = await auth.api.signInEmail({ body: { email: who, password }, returnHeaders: true });
+    const cookie = headers.getSetCookie().map((c) => c.split(";")[0]).join("; ");
+    return new Headers({ cookie });
+  }
+
+  it("changes the password only with the current one", async () => {
+    await auth.api.signUpEmail({ body: { email: who, password: "first-pass-123", name: "acct" } });
+    await testDb.user.update({ where: { email: who }, data: { emailVerified: true } });
+    const headers = await signedIn("first-pass-123");
+
+    await expect(
+      auth.api.changePassword({ headers, body: { currentPassword: "wrong-pass-999", newPassword: "second-pass-123" } }),
+    ).rejects.toMatchObject({ body: { code: "INVALID_PASSWORD" } });
+    await auth.api.changePassword({ headers, body: { currentPassword: "first-pass-123", newPassword: "second-pass-123", revokeOtherSessions: true } });
+    await expect(auth.api.signInEmail({ body: { email: who, password: "first-pass-123" } })).rejects.toMatchObject({
+      body: { code: "INVALID_EMAIL_OR_PASSWORD" },
+    });
+    expect((await auth.api.signInEmail({ body: { email: who, password: "second-pass-123" } })).token).toBeTruthy();
+  });
+
+  it("asks the current address to approve an email change and keeps the email until then", async () => {
+    const headers = await signedIn("second-pass-123");
+    vi.mocked(sendEmail).mockClear();
+    await auth.api.changeEmail({ headers, body: { newEmail: `new-${who}` } });
+    expect(vi.mocked(sendEmail)).toHaveBeenCalledWith(expect.objectContaining({ to: who, subject: "Approve your PocketPlan email change" }));
+    expect((await testDb.user.findUniqueOrThrow({ where: { email: who } })).email).toBe(who);
+  });
+});
+
 describe("rate limit storage", () => {
   // Production turns on rateLimit.storage = "database"; this proves Better Auth can write our RateLimit table.
   it("records attempts in the RateLimit table and answers 429 past the limit", async () => {
