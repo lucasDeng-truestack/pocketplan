@@ -1,0 +1,9 @@
+# ActivityScreen
+
+Activity (formerly History): every expense, income, refund, transfer and allocation, grouped by day with the day's net total, searchable and filterable. Viewing and correcting entries happens here.
+
+- Phone: title, a search Input (merchants, notes, amounts), filter chips in one scrolling row (All, Expenses, Income, Refunds, Transfers, Recurring), then day groups ("6 Nov 2026" with the day's net on the right) of TransactionRows in one Card per day. Tapping a row opens the entry detail Drawer (third phone): kind as the title, the amount in `amount-xl`, date and refund status, then Envelope, Merchant, Note and Refunded, then Record refund and Void entry.
+- Editing never changes an amount in place: the detail offers "Record refund", "Void entry" and "Restore entry", and a voided row stays visible struck through. This is the money rule from the brief, not a styling choice.
+- Recurring (new feature, suggested default): an entry can be marked "Repeats monthly" from its detail. It gets a "Repeats" Badge, appears under the Recurring filter with its next date, and PocketPlan shows a reminder when it is due. Nothing is recorded automatically. Needs a recurrence field on entries; confirm with Lucas before building.
+- Desktop 1280: filters as a bar (Type Tabs including Recurring, Envelope Select, From and To, "Clear filters"), the list in two thirds with date, label, envelope and amount columns, and the selected entry's detail with its actions in the right pane. Filters and the open entry live in the URL.
+- States: nothing recorded, no matches ("No entries match these filters."), invalid filters note, "Load more" after 50 rows.

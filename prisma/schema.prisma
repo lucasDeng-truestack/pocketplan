@@ -1,0 +1,204 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ---- Better Auth tables (shape from `npx @better-auth/cli generate`) ----
+
+model User {
+  id            String        @id
+  name          String
+  email         String        @unique
+  emailVerified Boolean       @default(false)
+  image         String?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  sessions      Session[]
+  accounts      Account[]
+  envelopes     Envelope[]
+  transactions  Transaction[]
+  reportSends    ReportSend[]
+  recurringItems RecurringItem[]
+  preference     Preference?
+}
+
+model Session {
+  id        String   @id
+  userId    String
+  token     String   @unique
+  expiresAt DateTime
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model Account {
+  id                    String    @id
+  userId                String
+  accountId             String
+  providerId            String
+  accessToken           String?
+  refreshToken          String?
+  idToken               String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  password              String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model Verification {
+  id         String   @id
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([identifier])
+}
+
+/// Better Auth rate limiting (rateLimit.storage = "database"): shared across serverless instances.
+model RateLimit {
+  id          String @id @default(cuid())
+  key         String @unique
+  count       Int
+  lastRequest BigInt
+}
+
+// ---- PocketPlan ----
+
+model Envelope {
+  id         String    @id @default(cuid())
+  userId     String
+  name       String
+  /// hex from ENVELOPE_COLOURS in src/lib/types.ts
+  colour     String?
+  /// key from ENVELOPE_ICONS in src/lib/types.ts; null = colour dot only
+  icon       String?
+  targetSen  Int?
+  sortOrder  Int
+  archivedAt DateTime?
+  createdAt  DateTime  @default(now())
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, sortOrder])
+}
+
+/// Allocation = TRANSFER with fromEnvelopeId null. Unallocate = TRANSFER with toEnvelopeId null.
+enum TransactionType {
+  INCOME
+  EXPENSE
+  REFUND
+  TRANSFER
+}
+
+model Transaction {
+  id             String          @id @default(cuid())
+  userId         String
+  type           TransactionType
+  /// always > 0, integer sen
+  amountSen      Int
+  /// EXPENSE / REFUND target
+  envelopeId     String?
+  /// TRANSFER source; null = unallocated
+  fromEnvelopeId String?
+  /// TRANSFER target; null = unallocated
+  toEnvelopeId   String?
+  /// REFUND -> original EXPENSE
+  refundOfId     String?
+  occurredOn     DateTime        @db.Date
+  merchant       String?
+  note           String?
+  voidedAt       DateTime?
+  createdAt      DateTime        @default(now())
+  user           User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  refundOf       Transaction?    @relation("Refunds", fields: [refundOfId], references: [id])
+  refunds        Transaction[]   @relation("Refunds")
+  /// this row replaces correctsId (the original is voided in the same transaction)
+  correctsId     String?
+  /// recorded from this RecurringItem
+  recurringId    String?
+  corrects       Transaction?    @relation("Corrections", fields: [correctsId], references: [id])
+  corrections    Transaction[]   @relation("Corrections")
+
+  @@index([userId, occurredOn])
+  @@index([userId, envelopeId])
+  @@index([userId, fromEnvelopeId])
+  @@index([userId, toEnvelopeId])
+  @@index([refundOfId])
+  @@index([correctsId])
+}
+
+enum ReportSendStatus {
+  ACCEPTED
+  FAILED
+}
+
+model ReportSend {
+  id           String           @id @default(cuid())
+  userId       String
+  sentAt       DateTime         @default(now())
+  rangeStart   DateTime         @db.Date
+  rangeEnd     DateTime         @db.Date
+  envelopeIds  String[]
+  includeNotes Boolean
+  recipients   String[]
+  contentHash  String
+  resendId     String?
+  status       ReportSendStatus
+  error        String?
+  user         User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, sentAt])
+  @@index([userId, contentHash, sentAt])
+}
+
+enum RecurringCadence {
+  WEEKLY
+  MONTHLY
+}
+
+/// A reminder the user confirms; nothing is posted automatically.
+model RecurringItem {
+  id           String           @id @default(cuid())
+  userId       String
+  /// INCOME or EXPENSE only (enforced in the service)
+  kind         TransactionType
+  amountSen    Int
+  /// required for EXPENSE
+  envelopeId   String?
+  merchant     String?
+  note         String?
+  cadence      RecurringCadence
+  startOn      DateTime         @db.Date
+  /// occurrences recorded or skipped; next due = occurrenceDate(startOn, cadence, handledCount)
+  handledCount Int              @default(0)
+  pausedAt     DateTime?
+  endedAt      DateTime?
+  createdAt    DateTime         @default(now())
+  user         User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model Preference {
+  userId    String   @id
+  /// ThemeName in src/lib/types.ts
+  theme     String   @default("modern")
+  /// ColorMode in src/lib/types.ts
+  mode      String   @default("system")
+  updatedAt DateTime @updatedAt
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}

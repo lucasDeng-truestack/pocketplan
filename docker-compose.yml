@@ -1,0 +1,23 @@
+# Local Postgres for development and tests. App DB: pocketplan. Test DB: pocketplan_test.
+services:
+  db:
+    image: postgres:17
+    container_name: pocketplan-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: pocketplan
+      POSTGRES_PASSWORD: pocketplan
+      POSTGRES_DB: pocketplan
+    ports:
+      - "5436:5432"
+    volumes:
+      - pocketplan-pgdata:/var/lib/postgresql/data
+      - ./docker/init-test-db.sql:/docker-entrypoint-initdb.d/init-test-db.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pocketplan -d pocketplan"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  pocketplan-pgdata:

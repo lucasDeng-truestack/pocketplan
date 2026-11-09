@@ -1,0 +1,11 @@
+# InsightsScreen
+
+The Insights tab, the last slot of the bottom bar, where past spending and income are read in detail. A Share report button in its header opens Envelopes › Reports for the same period. Three Tabs (Spending, Income, Cash flow) and a period control (This month, Last month, 12 months). The sample shows Last month, October, so the figures are a full month; "This month" is month to date and says so.
+
+- Spending: the period's total in `amount-xl` with the change against the previous period (arrow for the direction, percentage, `destructive` only when the change is bad for the person: spending up, income or net down); a 12-month column chart with a labelled axis (0, half, top in RM thousands), dashed gridlines in `border`, the selected month in `primary`; "Envelope movement" rows with swatch, name, change against the previous period, amount, and a thin bar in the envelope's colour sized to its share of the period; then the Priciest day and Small spends (entries under RM 20) tiles.
+- Income: the same chart for income, then the period's income entries. Income has no envelope, so the rows are the entries themselves.
+- Cash flow: income minus spending per month as diverging columns on a zero baseline, `primary` above and `destructive` below, with a three-month In · Out · Net table under it.
+- Tapping a column selects that month as the period; tapping a movement row opens Activity filtered to that envelope and period. Every chart has a table view (the rows beneath it).
+- States: fewer than two months of entries ("Not enough history to compare yet", the chart shows what exists); no spending in the period; no envelopes.
+- Desktop 1280: the Spending · Income · Cash flow Tabs and the period control in one row; chart and tiles left, movement rows right. Tablet: single column, chart first.
+- Months before November are illustrative sample data; the sample ledger itself holds only November. Charts here are shadcn Chart (Recharts) in code; see the Charts card for the shared rules.
