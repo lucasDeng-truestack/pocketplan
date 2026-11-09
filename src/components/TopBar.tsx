@@ -23,7 +23,7 @@ const iconLink =
 export function TopBar() {
   const pathname = usePathname();
   return (
-    <header className="sticky top-0 z-30 bg-background/90 pt-[env(safe-area-inset-top)] backdrop-blur">
+    <header className="sticky top-0 z-30 bg-background pt-[env(safe-area-inset-top)]">
       <div className="mx-auto flex h-14 w-full max-w-[720px] items-center justify-between gap-2 px-4 lg:h-16 lg:max-w-[1680px] lg:px-8">
         <h1 className="truncate text-xl font-semibold lg:text-2xl">{pageTitle(pathname)}</h1>
         <div className="flex shrink-0 items-center gap-1">

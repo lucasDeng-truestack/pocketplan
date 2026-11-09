@@ -497,3 +497,18 @@
   background-image: radial-gradient(color-mix(in srgb, var(--foreground) 9%, transparent) 1px, transparent 1px);
   background-size: 20px 20px;
 }
+
+/* Page entrance per navigation (app/(app)/template.tsx). CSS, not JS, so phones run it on the compositor while the
+   new page hydrates. Ends at transform none so it never stays the containing block for fixed sheets. */
+@keyframes page-in {
+  from {
+    opacity: 0;
+    transform: translateX(var(--page-dx, 0px));
+  }
+}
+@utility page-in {
+  animation: page-in 0.28s cubic-bezier(0.22, 1, 0.36, 1);
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
+  }
+}
