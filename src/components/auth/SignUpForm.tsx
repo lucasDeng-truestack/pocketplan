@@ -2,7 +2,6 @@
 
 import Link from "next/link";
 import { useId, useState, type FormEvent, type ReactNode } from "react";
-import { useRouter } from "next/navigation";
 import { Check, Circle } from "lucide-react";
 import { authClient } from "@/lib/auth-client";
 import { cn } from "@/lib/cn";
@@ -10,13 +9,13 @@ import { Button, Input } from "@/components/ui";
 import { FormError, NETWORK_ERROR, PasswordInput, TOO_MANY, fallbackMessage, looksLikeEmail } from "./shared";
 
 export function SignUpForm() {
-  const router = useRouter();
   const helpId = useId();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [error, setError] = useState<ReactNode>(null);
   const [pending, setPending] = useState(false);
+  const [sentTo, setSentTo] = useState<string | null>(null);
   const longEnough = password.length >= 8;
   const mismatch = confirm !== "" && confirm !== password ? "Passwords don't match" : null;
 
@@ -31,7 +30,7 @@ export function SignUpForm() {
     setError(null);
     try {
       // No name field: the part before @ is a sensible default and can be changed later.
-      const { error } = await authClient.signUp.email({ email: address, password, name: address.split("@")[0] });
+      const { error } = await authClient.signUp.email({ email: address, password, name: address.split("@")[0], callbackURL: "/" });
       if (error) {
         setError(
           error.status === 422 || error.code?.startsWith("USER_ALREADY_EXISTS") ? (
@@ -54,12 +53,29 @@ export function SignUpForm() {
         setPending(false);
         return;
       }
-      router.push("/");
-      router.refresh();
+      setSentTo(address);
     } catch {
       setError(NETWORK_ERROR);
       setPending(false);
     }
+  }
+
+  if (sentTo) {
+    return (
+      <div role="status" className="flex flex-col gap-3 text-sm">
+        <p className="text-base font-medium">Check your email</p>
+        <p>
+          We sent a link to <span className="font-medium">{sentTo}</span>. Tap it to confirm your email and sign in. It expires in 24 hours.
+        </p>
+        <p className="text-muted-foreground">
+          No email? Check spam, or{" "}
+          <Link href="/sign-in" className="font-medium underline">
+            sign in
+          </Link>{" "}
+          to get a new link.
+        </p>
+      </div>
+    );
   }
 
   return (

@@ -40,7 +40,7 @@ export function usingTestSender(): boolean {
 
 export const htmlHash = (html: string) => createHash("sha256").update(html).digest("hex");
 
-// shortcut: unverified accounts may only email themselves; this lifts automatically once requireEmailVerification is on
+// Sign-in requires a verified email, so this only blocks accounts created before verification was turned on.
 /** Whether this account may send reports to addresses other than its own. */
 export async function canSendReportsToOthers(userId: string): Promise<boolean> {
   const row = await db.user.findUnique({ where: { id: userId }, select: { emailVerified: true } });

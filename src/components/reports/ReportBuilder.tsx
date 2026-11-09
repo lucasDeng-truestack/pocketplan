@@ -53,6 +53,7 @@ export function ReportBuilder({
   const router = useRouter();
   const ids = useId();
   const [step, setStep] = useState<Step>("choose");
+  const frameRef = useRef<HTMLIFrameElement>(null);
   const [start, setStart] = useState(defaultStart);
   const [end, setEnd] = useState(defaultEnd);
   const [chosen, setChosen] = useState<Set<string>>(() => new Set(envelopes.filter((e) => !e.archived).map((e) => e.id)));
@@ -144,6 +145,18 @@ export function ReportBuilder({
     }
   }
 
+  /** Opens the print dialog for the previewed report; the person picks "Save as PDF" (Share → Save to Files on iPhone). */
+  function downloadPdf() {
+    const win = frameRef.current?.contentWindow;
+    if (!win || !previewed) return;
+    // Chrome names the PDF after the top page's title; print() blocks, so the title is restored after.
+    const title = document.title;
+    document.title = `PocketPlan report ${previewed.start} to ${previewed.end}`;
+    win.focus();
+    win.print();
+    document.title = title;
+  }
+
   if (step === "choose" || !previewed) {
     return (
       <div className="flex flex-col gap-4">
@@ -224,8 +237,9 @@ export function ReportBuilder({
             </Button>
           </div>
         ) : preview ? (
-          // srcDoc from a same-origin fetch; the empty sandbox still blocks scripts and gives it no origin.
-          <iframe title="Report preview" sandbox="" srcDoc={preview.html} className="h-[70dvh] w-full" />
+          // srcDoc from a same-origin fetch. No allow-scripts, so nothing in it can run; allow-same-origin and
+          // allow-modals only let this page call print() on it for the PDF download.
+          <iframe ref={frameRef} title="Report preview" sandbox="allow-same-origin allow-modals" srcDoc={preview.html} className="h-[70dvh] w-full" />
         ) : (
           <p role="status" className="flex h-[70dvh] items-center justify-center text-muted-foreground">
             Loading preview…
@@ -242,6 +256,9 @@ export function ReportBuilder({
           )}
           <Button onClick={() => setStep("send")} disabled={!preview}>
             Choose recipients
+          </Button>
+          <Button variant="secondary" onClick={downloadPdf} disabled={!preview}>
+            Download PDF
           </Button>
         </>
       ) : outcome?.ok ? (

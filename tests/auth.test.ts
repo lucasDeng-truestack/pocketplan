@@ -2,6 +2,7 @@ import "./setup";
 import { afterAll, describe, expect, it, vi } from "vitest";
 import { db } from "@/server/db";
 import { auth } from "@/server/auth";
+import { sendEmail } from "@/server/email/send";
 import { testDb } from "./helpers";
 
 // Outside a Next request there is no cookie store; nextCookies() only needs these two calls to be harmless.
@@ -16,21 +17,26 @@ afterAll(async () => {
 });
 
 describe("email + password", () => {
-  it("signs up, rejects a duplicate and a wrong password, signs in", async () => {
+  it("signs up, rejects a duplicate and a wrong password, requires a verified email, signs in", async () => {
     expect(db).toBe(testDb); // guard: Better Auth must be talking to the test database
     const signUp = await auth.api.signUpEmail({ body: { email, password: "first-pass-123", name: "auth" } });
     expect(signUp.user.email).toBe(email);
-    expect(signUp.token).toBeTruthy(); // autoSignIn
+    expect(signUp.token).toBeNull(); // no session until the email is verified
+    expect(vi.mocked(sendEmail)).toHaveBeenCalledWith(expect.objectContaining({ to: email, subject: "Confirm your PocketPlan email" }));
 
-    await expect(auth.api.signUpEmail({ body: { email, password: "other-pass-123", name: "auth" } })).rejects.toMatchObject({
-      body: { code: "USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL" },
-    });
+    // With verification on, a duplicate gets the same answer as a new sign-up (no account enumeration) and changes nothing.
+    expect((await auth.api.signUpEmail({ body: { email, password: "other-pass-123", name: "auth" } })).token).toBeNull();
+    expect(await testDb.user.count({ where: { email } })).toBe(1);
     await expect(auth.api.signInEmail({ body: { email, password: "wrong-pass-999" } })).rejects.toMatchObject({
       body: { code: "INVALID_EMAIL_OR_PASSWORD" },
     });
     await expect(auth.api.signUpEmail({ body: { email: `short-${email}`, password: "short", name: "x" } })).rejects.toMatchObject({
       body: { code: "PASSWORD_TOO_SHORT" },
     });
+    await expect(auth.api.signInEmail({ body: { email, password: "first-pass-123" } })).rejects.toMatchObject({
+      body: { code: "EMAIL_NOT_VERIFIED" },
+    });
+    await testDb.user.update({ where: { email }, data: { emailVerified: true } });
     expect((await auth.api.signInEmail({ body: { email, password: "first-pass-123" } })).token).toBeTruthy();
 
     const account = await testDb.account.findFirstOrThrow({ where: { user: { email } } });

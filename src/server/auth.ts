@@ -36,14 +36,22 @@ export const auth = betterAuth({
     enabled: true,
     minPasswordLength: 8,
     maxPasswordLength: 128,
-    autoSignIn: true,
-    // shortcut: no email verification until a Resend domain is verified; turn on requireEmailVerification then
-    requireEmailVerification: false,
+    // No session until the email is verified; the verify link signs the person in.
+    requireEmailVerification: true,
     sendResetPassword: async ({ user, url }) => {
       await sendEmail({ to: user.email, subject: "Reset your PocketPlan password", html: resetPasswordHtml(url) });
     },
     resetPasswordTokenExpiresIn: 3600,
     revokeSessionsOnPasswordReset: true,
+  },
+  emailVerification: {
+    sendOnSignUp: true,
+    sendOnSignIn: true, // signing in unverified sends a fresh link (covers expired or lost emails)
+    autoSignInAfterVerification: true,
+    expiresIn: 86400,
+    sendVerificationEmail: async ({ user, url }) => {
+      await sendEmail({ to: user.email, subject: "Confirm your PocketPlan email", html: verifyEmailHtml(url) });
+    },
   },
   plugins: [nextCookies()], // must stay last
 });
@@ -54,6 +62,13 @@ function resetPasswordHtml(url: string): string {
   return `<p>Someone asked to reset the password for your PocketPlan account. Tap the link below to choose a new one.</p>
 <p><a href="${href}">Reset your password</a></p>
 <p>If you did not ask for this, ignore this email. The link expires in 1 hour.</p>`;
+}
+
+function verifyEmailHtml(url: string): string {
+  const href = url.replace(/"/g, "%22");
+  return `<p>Welcome to PocketPlan. Tap the link below to confirm your email and sign in.</p>
+<p><a href="${href}">Confirm your email</a></p>
+<p>If you did not create an account, ignore this email. The link expires in 24 hours.</p>`;
 }
 
 // One session lookup per request, shared by the layout and the page.

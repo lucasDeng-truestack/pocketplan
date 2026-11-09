@@ -19,6 +19,8 @@ const res = await fetch(`${BASE}/api/auth/sign-up/email`, {
   body: JSON.stringify({ email: EMAIL, password: PASSWORD, name: "Demo" }),
 });
 if (!res.ok) throw new Error(`sign-up failed: ${res.status} ${await res.text()}`);
+// The demo inbox is not real, so mark the email confirmed (sign-in requires it).
+psql(`update "User" set "emailVerified" = true where email = ${q(EMAIL)};`);
 const uid = psql(`select id from "User" where email = ${q(EMAIL)};`);
 
 // 2. Deterministic "random" so every run gives the same data.

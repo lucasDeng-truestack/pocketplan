@@ -57,7 +57,7 @@ Client component → server action → `requireUser()` → `toResult(async () =>
 
 ## Auth and ownership
 
-Better Auth email + password (`src/server/auth.ts`): 8–128 characters, `autoSignIn` after sign-up, email verification off until a Resend domain is verified (`shortcut:`), reset tokens expire in 1 hour and a reset revokes every session. Pages: `/sign-in`, `/sign-up`, `/forgot-password`, `/reset-password` (each bounces a signed-in user to `/`); forms in `src/components/auth/` call `authClient` (`src/lib/auth-client.ts`, no plugins). Forgot-password always shows the same message, and Better Auth answers the same for unknown emails, so registered addresses are never revealed. Sign-up does say when an email is taken (a product choice). Trusted origins: only `BETTER_AUTH_URL` in production; in dev also the serving origin and `x-forwarded-host`.
+Better Auth email + password (`src/server/auth.ts`): 8–128 characters, email verification required (link valid 24 h, sent on sign-up and again on an unverified sign-in, signs the person in when opened), reset tokens expire in 1 hour and a reset revokes every session. Pages: `/sign-in`, `/sign-up`, `/forgot-password`, `/reset-password` (each bounces a signed-in user to `/`); forms in `src/components/auth/` call `authClient` (`src/lib/auth-client.ts`, no plugins). Forgot-password always shows the same message, and Better Auth answers the same for unknown emails, so registered addresses are never revealed. Sign-up does not reveal a taken email either: with verification on, Better Auth answers a duplicate exactly like a new sign-up. Trusted origins: only `BETTER_AUTH_URL` in production; in dev also the serving origin and `x-forwarded-host`.
 
 `requireUser()` reads the Better Auth session from request headers and redirects to `/sign-in` when absent. Every query on `Envelope`, `Transaction`, `ReportSend` includes `userId` from that session. Ids from the client are never trusted as proof of ownership.
 
@@ -75,6 +75,7 @@ Reports: `reports/build.ts` computes opening (day before start), activity and cl
 
 - Prisma over Drizzle: Lucas knows Prisma. Raw SQL (always parameterised tagged templates) only in `ledger/balances.ts`, `reports/build.ts`, the single-statement envelope reorder and the row lock.
 - No React Email: one `render()` returns an HTML string used for both the iframe preview and the Resend body, so the preview is exactly what is sent.
+- Download PDF (Preview step): calls `print()` on the preview iframe (sandbox `allow-same-origin allow-modals`, never `allow-scripts`); the person picks Save as PDF. No server-side PDF library, so the PDF is the same HTML as the preview and the email.
 - Dates stored as `DATE`; timezone fixed to Asia/Kuala_Lumpur for v1.
 - `@types/node` is 24 to satisfy vite/vitest peer ranges.
 

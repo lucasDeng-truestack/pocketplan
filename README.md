@@ -76,7 +76,7 @@ npm test
 ## Auth
 
 - Email and password through Better Auth. Passwords are 8 to 128 characters and stored hashed in `Account.password`.
-- Signing up signs you in straight away. Email verification is off until a Resend domain is verified (a `shortcut:` in `src/server/auth.ts`).
+- Signing up sends a confirmation link (valid 24 hours); the account can sign in only after confirming. Signing in unconfirmed sends a fresh link. Locally, with `RESEND_API_KEY` empty, the link prints in the terminal like reset links do.
 - Forgot password sends a one-time reset link that expires in 1 hour. The page always says "If an account exists for that email, we sent a reset link", so it never reveals which emails are registered.
 - Resetting a password signs out every existing session; then you sign in with the new password.
 
