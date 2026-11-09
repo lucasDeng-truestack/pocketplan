@@ -12,6 +12,8 @@ export type HealthInput = {
   spent30Sen: Sen;
   income30Sen: Sen;
   daysToNextIncome: number;
+  /** false when no recurring income exists, so daysToNextIncome is the end of the month, not a real payday */
+  nextIncomeKnown: boolean;
   envelopes: HealthEnvelope[];
   hasActivity: boolean;
 };
@@ -52,19 +54,27 @@ export function isAtRisk(e: HealthEnvelope, daysToNextIncome: number): boolean {
 /** Envelopes the score looks at: ones with recent spending, and bills (even if last paid over 30 days ago). */
 const considered = (envelopes: HealthEnvelope[]) => envelopes.filter((e) => e.spent30Sen > 0 || e.bill);
 
-function runway({ totalSen, spent30Sen, daysToNextIncome }: HealthInput): HealthPart {
+/** "next income in 20 days", or the month-end fallback explained when no recurring income is set up. */
+function horizon({ daysToNextIncome, nextIncomeKnown }: HealthInput): string {
+  return nextIncomeKnown ? `next income in ${days(daysToNextIncome)}` : "no recurring income set up, so this looks to the end of the month";
+}
+
+function runway(input: HealthInput): HealthPart {
+  const { totalSen, spent30Sen, daysToNextIncome } = input;
   const base = { key: "runway" as const, label: "Runway" };
   if (spent30Sen <= 0) return { ...base, score: MAX, detail: "No spending in the last 30 days." };
-  const covers = (Math.max(totalSen, 0) * 30) / spent30Sen;
+  const covers = Math.floor((Math.max(totalSen, 0) * 30) / spent30Sen);
+  const coversText = covers > 365 ? "over a year" : `about ${days(covers)}`; // "1953 days" says nothing useful
   return {
     ...base,
     // One division per score keeps exact halves exact (12.5 rounds to 13, not 12.4999…).
     score: Math.round(Math.min(MAX, (MAX * Math.max(totalSen, 0) * 30) / (spent30Sen * Math.max(daysToNextIncome, 1)))),
-    detail: `${formatSen(totalSen)} covers about ${days(Math.floor(covers))}; next income in ${days(daysToNextIncome)}.`,
+    detail: `${formatSen(totalSen)} covers ${coversText} of spending; ${horizon(input)}.`,
   };
 }
 
-function envelopesAtRisk({ envelopes, daysToNextIncome }: HealthInput): HealthPart {
+function envelopesAtRisk(input: HealthInput): HealthPart {
+  const { envelopes, daysToNextIncome } = input;
   const base = { key: "envelopesAtRisk" as const, label: "Envelopes at risk" };
   const list = considered(envelopes);
   if (list.length === 0) return { ...base, score: MAX, detail: "No envelope spending in the last 30 days." };
@@ -74,9 +84,13 @@ function envelopesAtRisk({ envelopes, daysToNextIncome }: HealthInput): HealthPa
     ...base,
     score: Math.round((MAX * (n - atRisk)) / n),
     detail:
-      atRisk === 0
-        ? `None of the ${n === 1 ? "envelope" : `${n} envelopes`} you spend from should run out before next income.`
-        : `${atRisk} of ${n} ${n === 1 ? "envelope" : "envelopes"} may run out before next income.`,
+      n === 1
+        ? atRisk === 0
+          ? "The one envelope you spend from should last until next income."
+          : "The one envelope you spend from may run out before next income."
+        : atRisk === 0
+          ? `None of the ${n} envelopes you spend from should run out before next income.`
+          : `${atRisk} of ${n} envelopes may run out before next income.`,
   };
 }
 

@@ -17,8 +17,9 @@ export function useQuickAdd(): OpenQuickAdd {
 }
 
 /**
- * Mounted once by the app shell. Opens from the + buttons (useQuickAdd) or from a `?add=expense|income|transfer`
- * deep link on any page; closing drops `add` from the current URL so a reload does not reopen it.
+ * Mounted once by the app shell. Opening (the + buttons via useQuickAdd, or a `?add=expense|income|transfer` deep link)
+ * pushes `?add=` onto the URL and the sheet follows that param, so the browser's Back closes it. Closing from the sheet
+ * drops `add` with a replace, so a reload does not reopen it (Back then revisits the same page once; harmless).
  */
 export function QuickAddProvider({
   data,
@@ -35,9 +36,18 @@ export function QuickAddProvider({
     repeats: false,
   });
 
-  const open = useCallback<OpenQuickAdd>((tab = "expense", opts) => {
-    setState({ open: true, tab, repeats: opts?.repeats ?? false });
-  }, []);
+  const open = useCallback<OpenQuickAdd>(
+    (tab = "expense", opts) => {
+      setState({ open: true, tab, repeats: opts?.repeats ?? false });
+      const qs = new URLSearchParams(window.location.search);
+      if (qs.get("add") === tab) return; // already in the URL (deep link, or reopened from the param)
+      qs.set("add", tab);
+      router.push(`${pathname}?${qs}`, { scroll: false });
+    },
+    [pathname, router],
+  );
+  // The URL lost `add` (Back, or a link elsewhere) without the sheet closing itself.
+  const closeFromUrl = useCallback(() => setState((s) => (s.open ? { ...s, open: false } : s)), []);
 
   // Stable: Sheet's focus effect depends on onClose, so a new function per render would yank focus.
   const close = useCallback(() => {
@@ -54,7 +64,7 @@ export function QuickAddProvider({
       {children}
       {/* useSearchParams needs a Suspense boundary; this reader renders nothing. */}
       <Suspense fallback={null}>
-        <AddParamReader onAdd={open} />
+        <AddParamReader onAdd={open} onNone={closeFromUrl} />
       </Suspense>
       <QuickAddSheet
         open={state.open}
@@ -69,12 +79,13 @@ export function QuickAddProvider({
   );
 }
 
-function AddParamReader({ onAdd }: { onAdd: OpenQuickAdd }) {
+function AddParamReader({ onAdd, onNone }: { onAdd: OpenQuickAdd; onNone: () => void }) {
   const add = useSearchParams().get("add");
   useEffect(() => {
     const tab = QUICK_ADD_TABS.find((t) => t === add);
     if (tab) onAdd(tab);
-  }, [add, onAdd]);
+    else onNone();
+  }, [add, onAdd, onNone]);
   return null;
 }
 

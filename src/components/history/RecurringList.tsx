@@ -17,7 +17,7 @@ import { useRunAction } from "@/components/ledger/useRunAction";
 import { cn } from "@/lib/cn";
 import { formatISODate } from "@/lib/dates";
 import { formatSen, formatSenPlain } from "@/lib/money";
-import type { ActionResult, RecurringView } from "@/lib/types";
+import type { ActionResult, RecurringCadence, RecurringView } from "@/lib/types";
 import { envelopeName, recurringName, type EnvelopesById } from "./labels";
 
 const badge = "shrink-0 rounded-full px-2 text-[0.6875rem] leading-5 font-medium";
@@ -208,9 +208,10 @@ function EditRecurringForm({
   pending: boolean;
   error: string | null;
   onCancel: () => void;
-  onSave: (input: { id: string; amountSen: number; envelopeId?: string | null; merchant?: string; note?: string }) => void;
+  onSave: (input: { id: string; amountSen: number; cadence?: RecurringCadence; envelopeId?: string | null; merchant?: string; note?: string }) => void;
 }) {
   const [amount, setAmount] = useState(formatSenPlain(item.amountSen));
+  const [cadence, setCadence] = useState<RecurringCadence>(item.cadence);
   const [envelopeId, setEnvelopeId] = useState(item.envelopeId);
   const [merchant, setMerchant] = useState(item.merchant ?? "");
   const [note, setNote] = useState(item.note ?? "");
@@ -230,6 +231,7 @@ function EditRecurringForm({
     onSave({
       id: item.id,
       amountSen,
+      cadence,
       note: note.trim() || undefined,
       ...(isExpense ? { envelopeId, merchant: merchant.trim() || undefined } : {}),
     });
@@ -239,6 +241,28 @@ function EditRecurringForm({
     <form onSubmit={onSubmit} noValidate className="flex flex-col gap-4">
       <p className="text-sm text-muted-foreground">Changes apply to the next ones. Entries already recorded stay as they are.</p>
       <MoneyInput value={amount} onChange={setAmount} />
+      <div className="flex flex-col gap-1">
+        <span id={`${item.id}-cadence`} className="text-sm font-medium">
+          Repeats
+        </span>
+        <div role="radiogroup" aria-labelledby={`${item.id}-cadence`} className="grid grid-cols-2 gap-1 rounded-xl bg-muted p-1">
+          {(["WEEKLY", "MONTHLY"] as const).map((c) => (
+            <button
+              key={c}
+              type="button"
+              role="radio"
+              aria-checked={cadence === c}
+              onClick={() => setCadence(c)}
+              className={cn("min-h-11 rounded-lg text-sm font-medium focus-visible:outline-2 focus-visible:outline-ring", cadence === c ? "bg-card text-foreground shadow-sm" : "text-muted-foreground")}
+            >
+              {c === "WEEKLY" ? "Weekly" : "Monthly"}
+            </button>
+          ))}
+        </div>
+        {cadence !== item.cadence && (
+          <p className="text-xs text-muted-foreground">The new schedule starts from {formatISODate(item.nextDueOn)}.</p>
+        )}
+      </div>
       {isExpense && <EnvelopeChips label="Envelope (optional)" options={options} value={envelopeId} onChange={setEnvelopeId} />}
       {isExpense && (
         <Input label="Merchant (optional)" value={merchant} onChange={(e) => setMerchant(e.target.value)} maxLength={140} autoComplete="off" />

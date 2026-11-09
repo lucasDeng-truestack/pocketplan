@@ -97,19 +97,23 @@ export async function createRecurring(
   });
 }
 
-/** Amount, envelope (EXPENSE; undefined keeps it, null = none), merchant and note (replaced; undefined clears). Not cadence or start. */
+/**
+ * Amount, envelope (EXPENSE; undefined keeps it, null = none), merchant and note (replaced; undefined clears), and cadence.
+ * A changed cadence restarts the schedule from the current next due date, so nothing already due is skipped or repeated.
+ */
 export async function updateRecurring(
   userId: string,
-  input: { id: string; amountSen: Sen; envelopeId?: string | null; merchant?: string; note?: string },
+  input: { id: string; amountSen: Sen; cadence?: RecurringCadence; envelopeId?: string | null; merchant?: string; note?: string },
 ): Promise<void> {
   await write(userId, async (tx) => {
     const item = await activeItem(tx, userId, input.id);
+    const reschedule = input.cadence && input.cadence !== item.cadence ? { cadence: input.cadence, startOn: isoToDbDate(nextDue(item)), handledCount: 0 } : {};
     const envelopeId =
       item.kind === "EXPENSE" ? ((input.envelopeId === undefined ? item.envelopeId : input.envelopeId) ?? undefined) : (input.envelopeId ?? undefined);
     await checkEnvelope(tx, userId, item.kind, envelopeId);
     await tx.recurringItem.update({
       where: { id: item.id, userId },
-      data: { amountSen: input.amountSen, envelopeId: item.kind === "EXPENSE" ? (envelopeId ?? null) : null, merchant: text(input.merchant), note: text(input.note) },
+      data: { amountSen: input.amountSen, envelopeId: item.kind === "EXPENSE" ? (envelopeId ?? null) : null, merchant: text(input.merchant), note: text(input.note), ...reschedule },
     });
   });
 }

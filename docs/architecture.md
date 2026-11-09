@@ -102,7 +102,7 @@ Reports: `reports/build.ts` computes opening (day before start), activity and cl
 
 Confirmed by Lucas: real delete for income entries and envelopes; comma as decimal; undo a whole split.
 
-- `parseSen` (src/lib/money.ts) is the one amount parser: "1,000" is thousands, "20,50" is RM 20.50, anything else with a comma, more than 2 decimals, a sign, an exponent or above MAX_SEN is null. The server re-validates integers with `senSchema`.
+- `parseSen` (src/lib/money.ts) is the one amount parser: a comma is only a thousands separator ("1,000", "1,000.50"); "20,50", more than 2 decimals, a sign, an exponent or anything above MAX_SEN is null, never reinterpreted (Lucas, 2026-11-10, MYR convention). The server re-validates integers with `senSchema`.
 - Server actions authenticate with `actionUser()` inside `toResult`: an ended session returns `UNAUTHORIZED` ("Your session ended, so this wasn't saved…") instead of redirecting and losing the action. Sessions slide: 30 days, refreshed daily.
 - Envelope names are unique among active envelopes (case-insensitive, trimmed): create, rename and unarchive check under `lockUser`.
 - Move back to Unallocated = TRANSFER with `toEnvelopeId` null (Activity: "Moved back · Name"); undo = void.
@@ -117,3 +117,6 @@ Confirmed by Lucas: detect bills automatically. An envelope with at most one exp
 month after the last (or at the repeat's next due date). A bill needs its amount before next income only if it falls due
 by then; otherwise it needs nothing, so a paid, empty bill envelope is not "at risk". Day-to-day envelopes keep the
 30-day pace model. The Dashboard reads 90 days of daily aggregates (was 60) for this.
+- Quick add follows the URL: opening pushes `?add=<tab>`, so the browser Back closes it; closing from the sheet replaces the URL without `add`.
+- Recurring items: the cadence can be edited; a change restarts the schedule from the current next due date (`startOn` = next due, `handledCount` = 0).
+- `/dashboard` redirects to `/` (next.config). Health copy: runway over a year reads "over a year"; with no recurring income the detail says the month end is the horizon.

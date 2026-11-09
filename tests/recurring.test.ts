@@ -193,3 +193,21 @@ describe("pause, resume, stop, ownership", () => {
     expect(await testDb.transaction.count({ where: { userId: other } })).toBe(0);
   });
 });
+
+describe("changing the cadence", () => {
+  it("restarts the schedule from the current next due date, keeping already-handled occurrences", async () => {
+    const u = (await makeTestUser()).id;
+    const { id } = await recurring.createRecurring(u, { kind: "INCOME", amountSen: 100000, cadence: "MONTHLY", startOn: ago(40) });
+    await recurring.recordRecurring(u, { id, dueOn: ago(40) }); // first one handled; next is a month after start
+    const before = (await recurring.listRecurring(u)).find((r) => r.id === id)!;
+    await recurring.updateRecurring(u, { id, amountSen: 100000, cadence: "WEEKLY" });
+    const after = (await recurring.listRecurring(u)).find((r) => r.id === id)!;
+    expect(after.cadence).toBe("WEEKLY");
+    expect(after.nextDueOn).toBe(before.nextDueOn); // nothing skipped or repeated
+    expect(after.startOn).toBe(before.nextDueOn);
+    await recurring.recordRecurring(u, { id, dueOn: after.nextDueOn });
+    expect((await recurring.listRecurring(u)).find((r) => r.id === id)!.nextDueOn).toBe(addDays(before.nextDueOn, 7));
+    await recurring.updateRecurring(u, { id, amountSen: 100000, cadence: "WEEKLY" }); // same cadence: no restart
+    expect((await recurring.listRecurring(u)).find((r) => r.id === id)!.startOn).toBe(before.nextDueOn);
+  });
+});

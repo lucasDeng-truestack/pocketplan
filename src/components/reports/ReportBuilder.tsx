@@ -95,13 +95,19 @@ export function ReportBuilder({
     setPreview(null);
     setPreviewError(null);
     try {
-      const res = await fetch(previewUrl(p), { credentials: "same-origin", cache: "no-store", signal: controller.signal });
+      // 20 s cap: a stalled request shows the error state with Try again instead of "Loading preview…" forever.
+      const timeout = setTimeout(() => controller.abort(new Error("timeout")), 20_000);
+      const res = await fetch(previewUrl(p), { credentials: "same-origin", cache: "no-store", signal: controller.signal }).finally(() =>
+        clearTimeout(timeout),
+      );
       const body = await res.text();
       const hash = res.headers.get("X-Report-Hash");
       if (!res.ok || !hash) setPreviewError(res.ok ? "Could not load the preview. Try again." : body);
       else setPreview({ html: body, hash });
     } catch {
-      if (!controller.signal.aborted) setPreviewError("Could not load the preview. Check your connection.");
+      if (controller.signal.reason instanceof Error && controller.signal.reason.message === "timeout") {
+        setPreviewError("The preview is taking too long. Try again.");
+      } else if (!controller.signal.aborted) setPreviewError("Could not load the preview. Check your connection.");
     }
   }
 

@@ -14,7 +14,7 @@ export function parseRange(v: unknown): DashboardRange {
 /** long: "November 2026"-style heading text; short: the card prefix ("Nov", "This week", "12 months"). */
 export function periodLabel(range: DashboardRange, start: ISODate): { long: string; short: string } {
   if (range === "week") return { long: "This week", short: "This week" };
-  if (range === "year") return { long: "Last 12 months", short: "12 months" };
+  if (range === "year") return { long: "Last 12 months", short: "Last 12 months" }; // same words as the chart heading
   const [, mon, year] = formatISODate(start).split(" ");
   return { long: `${mon} ${year}`, short: mon };
 }

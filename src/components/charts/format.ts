@@ -4,7 +4,8 @@ import type { Sen } from "@/lib/types";
 export function formatSenCompact(sen: Sen): string {
   const rm = Math.abs(sen) / 100;
   const short = (n: number, unit: string) => `${n.toFixed(1).replace(/\.0$/, "")}${unit}`;
-  const text = rm >= 1e6 ? short(rm / 1e6, "M") : rm >= 1000 ? short(rm / 1000, "K") : `${Math.round(rm)}`;
+  // Under RM 1,000 the exact amount fits, so show cents when there are any (RM 30.25, not RM 30).
+  const text = rm >= 1e6 ? short(rm / 1e6, "M") : rm >= 1000 ? short(rm / 1000, "K") : Number.isInteger(rm) ? `${rm}` : rm.toFixed(2);
   return `${sen < 0 ? "−" : ""}RM ${text}`;
 }
 

@@ -327,7 +327,9 @@ function Shortfall({ message }: { message: string | null }) {
 
 function SaveBar({ error, pending, disabled, children }: { error: string | null; pending: boolean; disabled: boolean; children: ReactNode }) {
   return (
-    <div className="sticky bottom-0 -mx-4 flex flex-col gap-2 bg-card px-4 pt-2">
+    // Stuck to the sheet's bottom edge: it carries the sheet's own bottom padding (and the phone's safe area), so the
+    // button never sits flush on the edge, and the Sheet's padding is cancelled below it so there is no double gap.
+    <div className="sticky bottom-0 -mx-4 -mb-[max(1rem,env(safe-area-inset-bottom))] flex flex-col gap-2 bg-card px-4 pt-2 pb-[max(1rem,env(safe-area-inset-bottom))]">
       {error && (
         <p role="alert" className="text-sm text-destructive">
           {error}

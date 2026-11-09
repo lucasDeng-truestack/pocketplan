@@ -7,6 +7,7 @@ const base: HealthInput = {
   spent30Sen: 0,
   income30Sen: 0,
   daysToNextIncome: 30,
+  nextIncomeKnown: true,
   envelopes: [],
   hasActivity: true,
 };
@@ -39,7 +40,7 @@ describe("computeHealth", () => {
     expect(part({ spent30Sen: 30000, totalSen: -5000, daysToNextIncome: 18 }, "runway").score).toBe(0);
     expect(part({ spent30Sen: 30000, totalSen: 500, daysToNextIncome: 0 }, "runway").score).toBe(13); // days clamp to 1
     expect(part({ spent30Sen: 30000, totalSen: 120000, daysToNextIncome: 18 }, "runway").detail).toBe(
-      "RM 1,200.00 covers about 120 days; next income in 18 days.",
+      "RM 1,200.00 covers about 120 days of spending; next income in 18 days.",
     );
   });
 
@@ -139,5 +140,24 @@ describe("monthly bills (detected automatically)", () => {
     const p = part({ envelopes: env, daysToNextIncome: 20 }, "envelopesAtRisk");
     expect(p.score).toBe(25);
     expect(p.detail).toBe("None of the 3 envelopes you spend from should run out before next income.");
+  });
+});
+
+describe("health copy", () => {
+  it("caps a meaningless runway and explains the month-end fallback when no recurring income exists", () => {
+    expect(part({ totalSen: 1000000, spent30Sen: 100, daysToNextIncome: 20 }, "runway").detail).toBe(
+      "RM 10,000.00 covers over a year of spending; next income in 20 days.",
+    );
+    expect(part({ totalSen: 120000, spent30Sen: 30000, daysToNextIncome: 20, nextIncomeKnown: false }, "runway").detail).toBe(
+      "RM 1,200.00 covers about 120 days of spending; no recurring income set up, so this looks to the end of the month.",
+    );
+  });
+  it("reads naturally with one envelope", () => {
+    expect(part({ envelopes: [{ balanceSen: 90000, spent30Sen: 3000 }] }, "envelopesAtRisk").detail).toBe(
+      "The one envelope you spend from should last until next income.",
+    );
+    expect(part({ envelopes: [{ balanceSen: 1, spent30Sen: 3000 }] }, "envelopesAtRisk").detail).toBe(
+      "The one envelope you spend from may run out before next income.",
+    );
   });
 });

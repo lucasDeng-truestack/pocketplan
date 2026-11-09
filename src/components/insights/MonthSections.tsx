@@ -7,7 +7,15 @@ import { formatSen, formatSenPlain } from "@/lib/money";
 import type { InsightsView, MonthInsights, TransactionView } from "@/lib/types";
 import { insightsHref } from "./href";
 
-const LABELLED_DAYS = new Set(["01", "08", "15", "22", "29"]);
+/** Which column indexes get a day label: about five, evenly spaced from day 1, plus the last day when it is not too close. */
+export function labelledIndexes(count: number): Set<number> {
+  const step = Math.max(1, Math.ceil(count / 5));
+  const picked = new Set<number>();
+  for (let i = 0; i < count; i += step) picked.add(i);
+  const lastPicked = Math.max(...picked, 0);
+  if (count > 0 && count - 1 - lastPicked >= step / 2) picked.add(count - 1);
+  return picked;
+}
 
 /** Spending per day across the month, today (or the month's last day) in the accent. */
 export function DailySpending({ daily, end }: { daily: MonthInsights["daily"]; end: string }) {
@@ -17,10 +25,12 @@ export function DailySpending({ daily, end }: { daily: MonthInsights["daily"]; e
         Daily spending
       </h2>
       <ColumnBars
-        columns={daily.map((d) => {
-          const day = d.date.slice(8);
-          return { key: d.date, label: LABELLED_DAYS.has(day) ? String(Number(day)) : "", name: formatISODate(d.date), sen: d.spentSen };
-        })}
+        columns={daily.map((d, i, all) => ({
+          key: d.date,
+          label: labelledIndexes(all.length).has(i) ? String(Number(d.date.slice(8))) : "",
+          name: formatISODate(d.date),
+          sen: d.spentSen,
+        }))}
         highlight={end}
         caption="Spending per day"
         emptyText="No spending this month"

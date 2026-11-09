@@ -115,6 +115,8 @@ export const createRecurringSchema = z
 export const updateRecurringSchema = z.object({
   id: idSchema,
   amountSen: senSchema,
+  /** A new cadence starts from the current next due date; undefined keeps it. */
+  cadence: z.enum(["WEEKLY", "MONTHLY"]).optional(),
   /** EXPENSE only; undefined keeps the envelope, null = none (comes out of Unallocated) */
   envelopeId: idSchema.nullable().optional(),
   merchant: merchantSchema,

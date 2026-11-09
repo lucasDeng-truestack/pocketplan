@@ -14,10 +14,8 @@ describe("parseSen", () => {
     expect(parseSen("12,345,678")).toBe(1234567800);
     expect(parseSen(" RM 0.05 ")).toBe(5);
   });
-  it("reads a comma followed by 1–2 digits as the decimal point", () => {
-    expect(parseSen("20,50")).toBe(2050); // the bug: this used to save RM 2,050.00
-    expect(parseSen("20,5")).toBe(2050);
-    expect(parseSen("0,99")).toBe(99);
+  it("rejects a decimal comma instead of guessing (\"20,50\" once saved as RM 2,050.00)", () => {
+    for (const bad of ["20,50", "20,5", "0,99", "1,00"]) expect(parseSen(bad), bad).toBeNull();
   });
   it("parses zero (senSchema then refuses it as not positive)", () => {
     expect(parseSen("0")).toBe(0);

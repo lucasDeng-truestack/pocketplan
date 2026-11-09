@@ -123,6 +123,7 @@ function healthInput(
   daysToNextIncome: number,
   hasActivity: boolean,
   bills: Map<string, Bill>,
+  nextIncomeKnown: boolean,
 ): HealthInput {
   const keep = in30(windowEnd);
   const spent = spentByEnvelope(daily, keep);
@@ -132,6 +133,7 @@ function healthInput(
     spent30Sen: sum(daily, spentOf, keep),
     income30Sen: sum(daily, incomeOf, keep),
     daysToNextIncome,
+    nextIncomeKnown,
     envelopes: envelopeIds.map((id) => ({ balanceSen: balances.envelopes[id] ?? 0, spent30Sen: spent.get(id) ?? 0, bill: bills.get(id) ?? null })),
     hasActivity,
   };
@@ -197,9 +199,9 @@ export async function getDashboard(userId: string, range: DashboardRange): Promi
   const bills = billsAsOf(daily, today, ids, recurring, daysToNextIncome);
   // shortcut: last month detects bills from the same 90-day rows (so its 3-month lookback is cut short) and ignores repeats; upgrade if the change arrow misleads.
   const billsThen = billsAsOf(daily, then, ids, [], daysToNextIncomeThen);
-  const health = computeHealth(healthInput(balances, ids, daily, today, daysToNextIncome, active.any, bills));
+  const health = computeHealth(healthInput(balances, ids, daily, today, daysToNextIncome, active.any, bills, nextIncome !== undefined));
   // shortcut: last month uses today's active envelopes (balances as of then), so ones archived since are left out; upgrade if that skews scores.
-  const healthThen = computeHealth(healthInput(balancesThen, ids, daily, then, daysToNextIncomeThen, active.asOf, billsThen));
+  const healthThen = computeHealth(healthInput(balancesThen, ids, daily, then, daysToNextIncomeThen, active.asOf, billsThen, nextIncome !== undefined));
 
   const spent30 = spentByEnvelope(daily, in30(today));
   const soon = addDays(today, 7);

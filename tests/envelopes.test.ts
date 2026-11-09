@@ -104,7 +104,10 @@ describe("duplicate envelope names", () => {
     await updateEnvelope(u.id, { id: food.id, name: "food" }); // renaming itself is fine
     await archiveEnvelope(u.id, food.id);
     const again = await createEnvelope(u.id, env("Food")); // archived names are free
-    await expect(unarchiveEnvelope(u.id, food.id)).rejects.toMatchObject({ code: "DUPLICATE" });
+    await expect(unarchiveEnvelope(u.id, food.id)).rejects.toMatchObject({
+      code: "DUPLICATE",
+      message: "An active envelope named Food already exists. Rename it to restore this one.",
+    });
     await createEnvelope(bob.id, env("Food")); // per person
     expect(again.name).toBe("Food");
   });

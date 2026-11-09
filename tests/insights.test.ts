@@ -1,4 +1,5 @@
 import "./setup";
+import { labelledIndexes } from "@/components/insights/MonthSections";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { db } from "@/server/db";
 import { archiveEnvelope, createEnvelope } from "@/server/envelopes/service";
@@ -302,5 +303,15 @@ describe("preferences", () => {
     await setPreferences(v.id, { theme: "retro", mode: "dark" });
     expect(await getPreferences(v.id)).toEqual({ theme: "retro", mode: "dark" });
     expect(await getPreferences(u.id)).toEqual({ theme: "pixel", mode: "light" });
+  });
+});
+
+describe("daily chart labels", () => {
+  it("spreads about five labels through the latest day", () => {
+    expect([...labelledIndexes(10)]).toEqual([0, 2, 4, 6, 8, 9]); // days 1,3,5,7,9 and the latest day, 10
+    expect([...labelledIndexes(31)]).toEqual([0, 7, 14, 21, 28]); // 29 is close enough to 31
+    expect([...labelledIndexes(12)]).toEqual([0, 3, 6, 9, 11]); // the last day gets a label when it is far from the previous one
+    expect([...labelledIndexes(1)]).toEqual([0]);
+    expect([...labelledIndexes(0)]).toEqual([]);
   });
 });

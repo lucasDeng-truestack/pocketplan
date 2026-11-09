@@ -32,12 +32,14 @@ async function nextSortOrder(tx: Prisma.TransactionClient, userId: string): Prom
 }
 
 /** Active envelope names are unique per person, ignoring case and surrounding spaces. Call under lockUser. */
-async function assertNameFree(tx: Prisma.TransactionClient, userId: string, name: string, exceptId?: string): Promise<void> {
+async function assertNameFree(tx: Prisma.TransactionClient, userId: string, name: string, exceptId?: string, verb?: "restore"): Promise<void> {
   const clash = await tx.envelope.findFirst({
     where: { userId, archivedAt: null, name: { equals: name.trim(), mode: "insensitive" }, ...(exceptId ? { id: { not: exceptId } } : {}) },
     select: { name: true },
   });
-  if (clash) throw new AppError("DUPLICATE", `You already have an envelope called ${clash.name}`);
+  if (!clash) return;
+  if (verb === "restore") throw new AppError("DUPLICATE", `An active envelope named ${clash.name} already exists. Rename it to restore this one.`);
+  throw new AppError("DUPLICATE", `You already have an envelope called ${clash.name}`);
 }
 
 const ORDER: Prisma.EnvelopeOrderByWithRelationInput[] = [{ sortOrder: "asc" }, { createdAt: "asc" }];
@@ -155,7 +157,7 @@ export async function unarchiveEnvelope(userId: string, id: string): Promise<voi
     const row = await tx.envelope.findFirst({ where: { id, userId } });
     if (!row) throw notFound();
     if (!row.archivedAt) return;
-    await assertNameFree(tx, userId, row.name, id);
+    await assertNameFree(tx, userId, row.name, id, "restore");
     const sortOrder = await nextSortOrder(tx, userId);
     await tx.envelope.update({ where: { id, userId }, data: { archivedAt: null, sortOrder } });
   }, TX_OPTIONS);
