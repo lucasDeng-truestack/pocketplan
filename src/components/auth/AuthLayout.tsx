@@ -86,6 +86,12 @@ export function AuthLayout({
           <p className="text-center text-xs text-muted-foreground">
             PocketPlan tracks money you already have. It never connects to your bank.
           </p>
+          <p className="text-center text-xs text-muted-foreground">
+            Made by{" "}
+            <a href="https://lucasdyj.dev/" target="_blank" rel="noopener" className="font-medium text-foreground underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring">
+              Lucas
+            </a>
+          </p>
         </div>
       </div>
 

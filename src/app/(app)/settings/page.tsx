@@ -40,6 +40,12 @@ export default async function SettingsPage() {
           About
         </h2>
         <p className="text-sm text-muted-foreground">PocketPlan tracks money. It never holds funds or connects to banks.</p>
+        <p className="text-sm text-muted-foreground">
+          Made by{" "}
+          <a href="https://lucasdyj.dev/" target="_blank" rel="noopener" className="font-medium text-foreground underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring">
+            Lucas
+          </a>
+        </p>
       </section>
     </div>
   );
