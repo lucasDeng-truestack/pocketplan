@@ -77,7 +77,17 @@ describe("getDashboard", () => {
       ["Fun", 1800],
     ]);
     expect(d.envelopes.map((e) => e.envelopeId)).toEqual([food, fun, bills]);
-    expect(d.envelopes.find((e) => e.envelopeId === fun)).toMatchObject({ balanceSen: 48200, spent30Sen: 1800, daysLeft: 803, atRisk: false });
+    // One spend in 90 days reads as a monthly bill: due again in a month, already covered.
+    expect(d.envelopes.find((e) => e.envelopeId === fun)).toMatchObject({
+      balanceSen: 48200,
+      spent30Sen: 1800,
+      daysLeft: null,
+      bill: { dueOn: addMonths(today, 1), sen: 1800 },
+      atRisk: false,
+    });
+    const food30 = d.envelopes.find((e) => e.envelopeId === food)!;
+    expect(food30.bill).toBeNull(); // several spend days this month: day-to-day spending
+    expect(food30.daysLeft).not.toBeNull();
     expect(d.envelopes.find((e) => e.envelopeId === bills)).toMatchObject({ spent30Sen: 0, daysLeft: null, atRisk: false });
     expect(d.balances.unallocatedSen + Object.values(d.balances.envelopes).reduce((s, v) => s + v, 0)).toBe(d.balances.totalSen);
     expect(d.recent).toHaveLength(5);

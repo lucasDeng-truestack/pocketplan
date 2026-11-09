@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { computeHealth, isAtRisk, type HealthInput } from "@/lib/health";
+import { computeHealth, detectBill, envelopeNeedSen, isAtRisk, type HealthInput } from "@/lib/health";
 
 const base: HealthInput = {
   totalSen: 0,
@@ -51,10 +51,9 @@ describe("computeHealth", () => {
     );
     expect(p.score).toBe(13); // 1 of 2 → 12.5
     expect(p.detail).toBe("1 of 2 envelopes may run out before next income.");
-    expect(isAtRisk(1000, 3000, 10)).toBe(false); // exactly 10 days left
-    expect(isAtRisk(999, 3000, 10)).toBe(true);
-    expect(isAtRisk(0, 0, 10)).toBe(false);
-    expect(isAtRisk(0, 3000, 0)).toBe(false);
+    expect(isAtRisk({ balanceSen: 1000, spent30Sen: 3000 }, 10)).toBe(false); // exactly 10 days left
+    expect(isAtRisk({ balanceSen: 999, spent30Sen: 3000 }, 10)).toBe(true);
+    expect(isAtRisk({ balanceSen: 0, spent30Sen: 0 }, 10)).toBe(false);
   });
 
   it("buffer: target is 10% of spending with a RM 50 floor", () => {
@@ -105,5 +104,40 @@ describe("computeHealth", () => {
     // runway 24: 960 sen at 1000 sen / 30 days covers 28.8 of 30 days
     expect(at({ unallocatedSen: 0, totalSen: 960 })).toMatchObject({ score: 49, band: "atRisk" });
     expect(computeHealth({ ...base, unallocatedSen: 5000 })).toMatchObject({ score: 100, band: "healthy" });
+  });
+});
+
+describe("monthly bills (detected automatically)", () => {
+  const T = "2026-11-10";
+  it("treats one payment per calendar month as a bill due a month after the last", () => {
+    const phone = [{ date: "2026-09-03", sen: 5800 }, { date: "2026-10-03", sen: 5800 }, { date: "2026-11-03", sen: 6000 }];
+    expect(detectBill(phone, T)).toEqual({ nextDueOn: "2026-12-03", sen: 6000 });
+    expect(detectBill([{ date: "2026-11-02", sen: 1000 }], T)).toEqual({ nextDueOn: "2026-12-02", sen: 1000 }); // a single payment counts
+    expect(detectBill([{ date: "2026-01-31", sen: 1000 }], "2026-02-15")).toEqual({ nextDueOn: "2026-02-28", sen: 1000 }); // clamps
+  });
+  it("keeps day-to-day envelopes (two spend days in a month) on the pace model, and ignores old or empty days", () => {
+    expect(detectBill([{ date: "2026-11-02", sen: 500 }, { date: "2026-11-06", sen: 500 }], T)).toBeNull();
+    expect(detectBill([{ date: "2026-11-02", sen: 900, count: 3 }], T)).toBeNull(); // three spends on one day
+    expect(detectBill([], T)).toBeNull();
+    expect(detectBill([{ date: "2026-07-01", sen: 500 }], T)).toBeNull(); // over 90 days ago
+    expect(detectBill([{ date: "2026-11-20", sen: 500 }], T)).toBeNull(); // future-dated
+  });
+  it("an empty bill envelope already paid this month is not at risk; one due before next income and short is", () => {
+    const paid = { balanceSen: 0, spent30Sen: 6000, bill: { dueInDays: 23, sen: 6000 } }; // the screenshot case
+    expect(isAtRisk(paid, 20)).toBe(false);
+    expect(envelopeNeedSen(paid, 20)).toBe(0);
+    expect(isAtRisk({ ...paid, bill: { dueInDays: 5, sen: 6000 } }, 20)).toBe(true);
+    expect(isAtRisk({ balanceSen: 6000, spent30Sen: 0, bill: { dueInDays: -2, sen: 6000 } }, 20)).toBe(false); // overdue but covered
+    expect(isAtRisk({ balanceSen: 100, spent30Sen: 0, bill: { dueInDays: 0, sen: 6000 } }, 20)).toBe(true);
+  });
+  it("paid bills stop dragging the envelopes part down, and their surplus counts as buffer", () => {
+    const env = [
+      { balanceSen: 0, spent30Sen: 6000, bill: { dueInDays: 23, sen: 6000 } },
+      { balanceSen: 0, spent30Sen: 20000, bill: { dueInDays: 25, sen: 20000 } },
+      { balanceSen: 30000, spent30Sen: 30000 },
+    ];
+    const p = part({ envelopes: env, daysToNextIncome: 20 }, "envelopesAtRisk");
+    expect(p.score).toBe(25);
+    expect(p.detail).toBe("None of the 3 envelopes you spend from should run out before next income.");
   });
 });

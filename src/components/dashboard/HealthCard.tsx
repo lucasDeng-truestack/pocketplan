@@ -4,6 +4,8 @@ import { useId, useState } from "react";
 import { ChevronDown } from "lucide-react";
 import { EnvelopeSwatch, ProgressBar } from "@/components/ui";
 import { cn } from "@/lib/cn";
+import { formatISODate } from "@/lib/dates";
+import { formatSen } from "@/lib/money";
 import type { EnvelopeInsight, HealthBand, HealthScore } from "@/lib/types";
 
 const BANDS: Record<HealthBand, { word: string; text: string; stroke: string }> = {
@@ -20,7 +22,7 @@ export function HealthCard({
 }: {
   health: HealthScore | null;
   lastMonth: number | null;
-  atRisk: Pick<EnvelopeInsight, "envelopeId" | "name" | "colour" | "daysLeft">[];
+  atRisk: Pick<EnvelopeInsight, "envelopeId" | "name" | "colour" | "daysLeft" | "bill">[];
 }) {
   const [open, setOpen] = useState(false);
   const panelId = useId();
@@ -101,10 +103,16 @@ export function HealthCard({
                 <li key={e.envelopeId} className="flex items-center gap-2">
                   <EnvelopeSwatch colour={e.colour} />
                   <span className="truncate">{e.name}</span>
-                  {e.daysLeft !== null && (
+                  {e.bill ? (
                     <span className="ml-auto shrink-0 tabular-nums text-muted-foreground">
-                      {e.daysLeft} {e.daysLeft === 1 ? "day" : "days"} left
+                      {formatSen(e.bill.sen)} due {formatISODate(e.bill.dueOn)}
                     </span>
+                  ) : (
+                    e.daysLeft !== null && (
+                      <span className="ml-auto shrink-0 tabular-nums text-muted-foreground">
+                        {e.daysLeft} {e.daysLeft === 1 ? "day" : "days"} left
+                      </span>
+                    )
                   )}
                 </li>
               ))}

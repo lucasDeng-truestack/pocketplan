@@ -1,5 +1,10 @@
+import { addMonths, daysBetween } from "./dates";
 import { formatSen } from "./money";
-import type { HealthBand, HealthPart, HealthScore, Sen } from "./types";
+import type { HealthBand, HealthPart, HealthScore, ISODate, Sen } from "./types";
+
+/** A once-a-month payment (phone bill, tithes, a subscription): the next one is due in `dueInDays` (≤ 0 = due now). */
+export type Bill = { dueInDays: number; sen: Sen };
+export type HealthEnvelope = { balanceSen: Sen; spent30Sen: Sen; bill?: Bill | null };
 
 export type HealthInput = {
   totalSen: Sen;
@@ -7,7 +12,7 @@ export type HealthInput = {
   spent30Sen: Sen;
   income30Sen: Sen;
   daysToNextIncome: number;
-  envelopes: { balanceSen: Sen; spent30Sen: Sen }[];
+  envelopes: HealthEnvelope[];
   hasActivity: boolean;
 };
 
@@ -15,10 +20,37 @@ const MAX = 25;
 const MIN_BUFFER_SEN = 5000;
 const days = (n: number) => `${n} ${n === 1 ? "day" : "days"}`;
 
-/** An envelope with recent spending runs out before next income at its 30-day pace. Integer maths. */
-export function isAtRisk(balanceSen: Sen, spent30Sen: Sen, daysToNextIncome: number): boolean {
-  return spent30Sen > 0 && balanceSen * 30 < daysToNextIncome * spent30Sen;
+/**
+ * Bill detection (Lucas, 2026-11-10: automatic). An envelope with at most one payment per calendar month over the last
+ * 90 days is a bill: its next payment is expected a month after the last one, for the same amount. Day-to-day
+ * envelopes (two or more spends in a month) return null and keep the 30-day pace model.
+ * `count` is the number of expenses that day (default 1).
+ */
+export function detectBill(
+  spendDays: { date: ISODate; sen: Sen; count?: number }[],
+  today: ISODate,
+): { nextDueOn: ISODate; sen: Sen } | null {
+  const days = spendDays.filter((d) => d.sen > 0 && d.date <= today && daysBetween(d.date, today) < 90);
+  if (days.length === 0 || days.some((d) => (d.count ?? 1) > 1)) return null;
+  const months = new Set(days.map((d) => d.date.slice(0, 7)));
+  if (months.size !== days.length) return null; // two payments in one month: day-to-day spending
+  const last = days.reduce((a, b) => (b.date > a.date ? b : a));
+  return { nextDueOn: addMonths(last.date, 1), sen: last.sen };
 }
+
+/** Sen the envelope must still pay out before next income: the bill if it falls due by then, else its 30-day pace. */
+export function envelopeNeedSen(e: HealthEnvelope, daysToNextIncome: number): Sen {
+  if (e.bill) return e.bill.dueInDays <= daysToNextIncome ? e.bill.sen : 0;
+  return e.spent30Sen > 0 ? Math.ceil((e.spent30Sen * Math.max(daysToNextIncome, 1)) / 30) : 0; // integer sen
+}
+
+/** At risk: holds less than it needs before next income. Bills only count when due before then. */
+export function isAtRisk(e: HealthEnvelope, daysToNextIncome: number): boolean {
+  return e.balanceSen < envelopeNeedSen(e, daysToNextIncome);
+}
+
+/** Envelopes the score looks at: ones with recent spending, and bills (even if last paid over 30 days ago). */
+const considered = (envelopes: HealthEnvelope[]) => envelopes.filter((e) => e.spent30Sen > 0 || e.bill);
 
 function runway({ totalSen, spent30Sen, daysToNextIncome }: HealthInput): HealthPart {
   const base = { key: "runway" as const, label: "Runway" };
@@ -34,10 +66,10 @@ function runway({ totalSen, spent30Sen, daysToNextIncome }: HealthInput): Health
 
 function envelopesAtRisk({ envelopes, daysToNextIncome }: HealthInput): HealthPart {
   const base = { key: "envelopesAtRisk" as const, label: "Envelopes at risk" };
-  const considered = envelopes.filter((e) => e.spent30Sen > 0);
-  if (considered.length === 0) return { ...base, score: MAX, detail: "No envelope spending in the last 30 days." };
-  const atRisk = considered.filter((e) => isAtRisk(e.balanceSen, e.spent30Sen, daysToNextIncome)).length;
-  const n = considered.length;
+  const list = considered(envelopes);
+  if (list.length === 0) return { ...base, score: MAX, detail: "No envelope spending in the last 30 days." };
+  const atRisk = list.filter((e) => isAtRisk(e, daysToNextIncome)).length;
+  const n = list.length;
   return {
     ...base,
     score: Math.round((MAX * (n - atRisk)) / n),
@@ -53,11 +85,7 @@ function envelopesAtRisk({ envelopes, daysToNextIncome }: HealthInput): HealthPa
  * Softened (Lucas, 2026-11-09): fully allocating is good envelope practice, so envelope surplus (savings, goals) counts.
  */
 function bufferSen({ unallocatedSen, envelopes, daysToNextIncome }: HealthInput): Sen {
-  const days = Math.max(daysToNextIncome, 1);
-  const surplus = envelopes.reduce((s, e) => {
-    const needSen = e.spent30Sen > 0 ? Math.ceil((e.spent30Sen * days) / 30) : 0; // integer sen
-    return s + Math.max(0, e.balanceSen - needSen);
-  }, 0);
+  const surplus = envelopes.reduce((s, e) => s + Math.max(0, e.balanceSen - envelopeNeedSen(e, daysToNextIncome)), 0);
   return Math.max(unallocatedSen, 0) + surplus;
 }
 

@@ -177,8 +177,10 @@ export type EnvelopeInsight = {
   balanceSen: Sen;
   targetSen: Sen | null;
   spent30Sen: Sen;
-  /** null = no spending in the last 30 days */
+  /** null = no spending in the last 30 days, or a bill (see `bill`) */
   daysLeft: number | null;
+  /** A once-a-month envelope (a repeat, or paid on one day a month): its next expected payment. */
+  bill: { dueOn: ISODate; sen: Sen } | null;
   atRisk: boolean;
 };
 export type DashboardData = {

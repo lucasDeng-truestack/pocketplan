@@ -7,8 +7,8 @@ import { getBalances, getCurrentBalances } from "@/server/ledger/balances";
 import { dbDateToIso, isoToDbDate } from "@/server/ledger/dates";
 import { listTransactions } from "@/server/ledger/service";
 import { listRecurring } from "@/server/recurring/service";
-import { addDays, addMonths, formatISODate, startOfMonth, startOfWeek, todayKL } from "@/lib/dates";
-import { computeHealth, isAtRisk, type HealthInput } from "@/lib/health";
+import { addDays, addMonths, daysBetween, formatISODate, startOfMonth, startOfWeek, todayKL } from "@/lib/dates";
+import { computeHealth, detectBill, isAtRisk, type Bill, type HealthInput } from "@/lib/health";
 import type {
   Balances,
   DashboardData,
@@ -18,6 +18,7 @@ import type {
   ISODate,
   InsightsView,
   MonthInsights,
+  RecurringView,
   Sen,
   TransactionType,
   TransactionView,
@@ -30,9 +31,8 @@ const MAX_MONTHS = 13;
 const MONTH_LETTERS = "JFMAMJJASOND";
 
 /** key is "YYYY-MM-DD" (day) or "YYYY-MM" (month). small* count EXPENSE-sized rows under RM 20 in the group. */
-type Agg = { key: string; type: TransactionType; envelopeId: string | null; sen: Sen; smallCount: number; smallSen: Sen };
+type Agg = { key: string; type: TransactionType; envelopeId: string | null; sen: Sen; count: number; smallCount: number; smallSen: Sen };
 
-const daysBetween = (a: ISODate, b: ISODate) => Math.round((Date.parse(b) - Date.parse(a)) / 86_400_000);
 const endOfMonth = (iso: ISODate) => addDays(startOfMonth(addMonths(iso, 1)), -1);
 const weekday = (iso: ISODate) => daysBetween(startOfWeek(iso), iso); // 0 = Monday
 const spentOf = (a: Agg): Sen => (a.type === "EXPENSE" ? a.sen : a.type === "REFUND" ? -a.sen : 0);
@@ -61,17 +61,18 @@ async function aggregate(userId: string, unit: "day" | "month", start: ISODate, 
   if (tooWide) throw new Error(`insights: ${unit} aggregate ${start}..${end} exceeds its bound`);
   const keyLength = unit === "day" ? 10 : 7; // DATE::text is YYYY-MM-DD
   const rows = await db.$queryRaw<
-    { key: string; type: TransactionType; envelopeId: string | null; sen: bigint; smallCount: bigint; smallSen: bigint }[]
+    { key: string; type: TransactionType; envelopeId: string | null; sen: bigint; count: bigint; smallCount: bigint; smallSen: bigint }[]
   >`
     SELECT left("occurredOn"::text, ${keyLength}::int) AS key, type, "envelopeId",
       SUM("amountSen")::bigint AS sen,
+      COUNT(*)::bigint AS count,
       COUNT(*) FILTER (WHERE "amountSen" < 2000)::bigint AS "smallCount",
       COALESCE(SUM("amountSen") FILTER (WHERE "amountSen" < 2000), 0)::bigint AS "smallSen"
     FROM "Transaction"
     WHERE "userId" = ${userId} AND "voidedAt" IS NULL AND type IN ('INCOME', 'EXPENSE', 'REFUND')
       AND "occurredOn" BETWEEN ${start}::date AND ${end}::date
     GROUP BY 1, 2, 3`;
-  return rows.map((r) => ({ ...r, sen: Number(r.sen), smallCount: Number(r.smallCount), smallSen: Number(r.smallSen) }));
+  return rows.map((r) => ({ ...r, sen: Number(r.sen), count: Number(r.count), smallCount: Number(r.smallCount), smallSen: Number(r.smallSen) }));
 }
 
 /** Any non-voided entry at all, and any dated on or before `asOf`. */
@@ -94,6 +95,26 @@ function activeEnvelopes(userId: string) {
   });
 }
 
+/** Once-a-month envelopes as of `asOf`: repeats you set up win; otherwise detected from the daily spending rows. */
+function billsAsOf(daily: Agg[], asOf: ISODate, envelopeIds: string[], repeats: RecurringView[], daysToNextIncome: number): Map<string, Bill & { dueOn: ISODate }> {
+  const bills = new Map<string, Bill & { dueOn: ISODate }>();
+  const horizon = addDays(asOf, daysToNextIncome);
+  for (const id of envelopeIds) {
+    const own = repeats.filter((r) => r.kind === "EXPENSE" && r.envelopeId === id && !r.pausedAt);
+    if (own.length > 0) {
+      const dueOn = own.map((r) => r.nextDueOn).sort()[0];
+      const dueByIncome = own.filter((r) => r.nextDueOn <= horizon).reduce((sum, r) => sum + r.amountSen, 0);
+      const sen = dueByIncome || own.find((r) => r.nextDueOn === dueOn)!.amountSen;
+      bills.set(id, { dueOn, dueInDays: daysBetween(asOf, dueOn), sen });
+      continue;
+    }
+    const days = daily.filter((a) => a.envelopeId === id && a.type === "EXPENSE" && a.key <= asOf).map((a) => ({ date: a.key, sen: a.sen, count: a.count }));
+    const bill = detectBill(days, asOf);
+    if (bill) bills.set(id, { dueOn: bill.nextDueOn, dueInDays: daysBetween(asOf, bill.nextDueOn), sen: bill.sen });
+  }
+  return bills;
+}
+
 function healthInput(
   balances: Balances,
   envelopeIds: string[],
@@ -101,6 +122,7 @@ function healthInput(
   windowEnd: ISODate,
   daysToNextIncome: number,
   hasActivity: boolean,
+  bills: Map<string, Bill>,
 ): HealthInput {
   const keep = in30(windowEnd);
   const spent = spentByEnvelope(daily, keep);
@@ -110,7 +132,7 @@ function healthInput(
     spent30Sen: sum(daily, spentOf, keep),
     income30Sen: sum(daily, incomeOf, keep),
     daysToNextIncome,
-    envelopes: envelopeIds.map((id) => ({ balanceSen: balances.envelopes[id] ?? 0, spent30Sen: spent.get(id) ?? 0 })),
+    envelopes: envelopeIds.map((id) => ({ balanceSen: balances.envelopes[id] ?? 0, spent30Sen: spent.get(id) ?? 0, bill: bills.get(id) ?? null })),
     hasActivity,
   };
 }
@@ -123,8 +145,8 @@ export async function getDashboard(userId: string, range: DashboardRange): Promi
     getCurrentBalances(userId), // shared with the (app) layout for this request
     getBalances(userId, then),
     listActiveEnvelopesCached(userId), // same cached balances snapshot
-    // 60 days: both 30-day windows (ending today and ending 30 days ago) and any week or month range.
-    aggregate(userId, "day", addDays(today, -59), today),
+    // 90 days: bill detection (one payment a month for 3 months), both 30-day windows, and any week or month range.
+    aggregate(userId, "day", addDays(today, -89), today),
     range === "year" ? aggregate(userId, "month", start, today) : Promise.resolve([]),
     listRecurring(userId),
     listTransactions(userId, { limit: 5 }),
@@ -172,9 +194,12 @@ export async function getDashboard(userId: string, range: DashboardRange): Promi
   const daysToNextIncomeThen = daysToNextIncome;
 
   const ids = envelopes.map((e) => e.id);
-  const health = computeHealth(healthInput(balances, ids, daily, today, daysToNextIncome, active.any));
+  const bills = billsAsOf(daily, today, ids, recurring, daysToNextIncome);
+  // shortcut: last month detects bills from the same 90-day rows (so its 3-month lookback is cut short) and ignores repeats; upgrade if the change arrow misleads.
+  const billsThen = billsAsOf(daily, then, ids, [], daysToNextIncomeThen);
+  const health = computeHealth(healthInput(balances, ids, daily, today, daysToNextIncome, active.any, bills));
   // shortcut: last month uses today's active envelopes (balances as of then), so ones archived since are left out; upgrade if that skews scores.
-  const healthThen = computeHealth(healthInput(balancesThen, ids, daily, then, daysToNextIncomeThen, active.asOf));
+  const healthThen = computeHealth(healthInput(balancesThen, ids, daily, then, daysToNextIncomeThen, active.asOf, billsThen));
 
   const spent30 = spentByEnvelope(daily, in30(today));
   const soon = addDays(today, 7);
@@ -193,6 +218,7 @@ export async function getDashboard(userId: string, range: DashboardRange): Promi
     unassignedSpentSen: sum(rangeRows, spentOf, (a) => a.envelopeId === null),
     envelopes: envelopes.map((e) => {
       const s = spent30.get(e.id) ?? 0;
+      const bill = bills.get(e.id) ?? null;
       return {
         envelopeId: e.id,
         name: e.name,
@@ -200,8 +226,9 @@ export async function getDashboard(userId: string, range: DashboardRange): Promi
         balanceSen: e.balanceSen,
         targetSen: e.targetSen,
         spent30Sen: s,
-        daysLeft: s > 0 ? Math.floor((e.balanceSen * 30) / s) : null,
-        atRisk: isAtRisk(e.balanceSen, s, daysToNextIncome),
+        daysLeft: bill || s === 0 ? null : Math.floor((e.balanceSen * 30) / s),
+        bill: bill ? { dueOn: bill.dueOn, sen: bill.sen } : null,
+        atRisk: isAtRisk({ balanceSen: e.balanceSen, spent30Sen: s, bill }, daysToNextIncome),
       };
     }),
     due: recurring

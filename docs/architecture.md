@@ -109,3 +109,11 @@ Confirmed by Lucas: real delete for income entries and envelopes; comma as decim
 - `allocate` stamps one `batchId` on every row it creates; `undoSplit` voids the whole batch, refused if the money was spent.
 - `deleteIncome` deletes the entry and all its correction versions, refused with the shortfall if Unallocated would go negative.
 - `deleteEnvelope` moves the balance (logged transfer) to Unallocated or another envelope, saves name/colour/icon in `DeletedEnvelope`, stops repeats that spend from it, then deletes the row. Its past entries keep the id, show "Name (deleted)" via `listEnvelopeLabels`, and can't be voided, restored or edited (`assertEnvelopesExist`).
+
+## Health score: monthly bills (2026-11-10)
+
+Confirmed by Lucas: detect bills automatically. An envelope with at most one expense per calendar month over the last
+90 days (`detectBill` in `src/lib/health.ts`), or one that a repeat spends from, is a bill: its next payment is expected a
+month after the last (or at the repeat's next due date). A bill needs its amount before next income only if it falls due
+by then; otherwise it needs nothing, so a paid, empty bill envelope is not "at risk". Day-to-day envelopes keep the
+30-day pace model. The Dashboard reads 90 days of daily aggregates (was 60) for this.

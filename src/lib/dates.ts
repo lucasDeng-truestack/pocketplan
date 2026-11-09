@@ -62,6 +62,9 @@ export function startOfMonth(iso: ISODate): ISODate {
 }
 
 /** Add whole months, clamping the day to the target month's last day (31 Jan + 1 month = 28/29 Feb). */
+/** Whole days from a to b ("YYYY-MM-DD" parses as UTC midnight, so there is no DST drift). */
+export const daysBetween = (a: ISODate, b: ISODate) => Math.round((Date.parse(b) - Date.parse(a)) / 86_400_000);
+
 export function addMonths(iso: ISODate, months: number): ISODate {
   const [y, m, d] = iso.split("-").map(Number);
   const first = new Date(Date.UTC(y, m - 1 + months, 1));
