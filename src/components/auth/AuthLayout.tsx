@@ -91,6 +91,7 @@ export function AuthLayout({
             <a href="https://lucasdyj.dev/" target="_blank" rel="noopener" className="font-medium text-foreground underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring">
               Lucas
             </a>
+            {" · "}Built with Claude Code and Claude Design
           </p>
         </div>
       </div>
